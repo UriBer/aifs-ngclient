@@ -7,7 +7,8 @@ A cross-cloud object management client that provides a unified interface for wor
 The application is now working with Electron Forge! 
 
 **📖 For detailed setup instructions, see [GETTING_STARTED.md](GETTING_STARTED.md)**  
-**🔒 For security details, see [SECURITY.md](SECURITY.md)**
+**🔒 For security details, see [SECURITY.md](SECURITY.md)**  
+**🎯 For Norton Commander UI details, see [NORTON_COMMANDER_UI.md](NORTON_COMMANDER_UI.md)**
 
 ### Prerequisites
 
@@ -36,16 +37,42 @@ That's it! The application should launch with a clean interface ready for testin
 ## 🎯 Current Status
 
 ✅ **Working Features:**
-- **Electron application** with proper module resolution using Electron Forge
-- **Local file system operations** (FileProvider)
-- **AWS S3 operations** (S3Provider) with full CRUD support
-- **Secure credential management** with AES-256 encryption
-- **Master password protection** for stored credentials
-- **Multi-source credential detection** (env vars, AWS CLI, encrypted config)
-- **Job management system** with progress tracking
-- **IPC communication** between main and renderer processes
-- **Modern UI** with configuration dialogs and security prompts
-- **Cross-provider operations** (copy, move between different storage types)
+
+**🎯 Core File Management:**
+- **Norton Commander UI** - Classic dual-pane file manager interface with authentic blue theme
+- **Cross-Cloud Support** - Local file system, AWS S3, Google Cloud Storage
+- **File Viewing** - Double-click files to open with system default application
+- **Cloud File Downloads** - Automatic download of cloud files to temp folder (~/.aifs-temp)
+- **Progress Tracking** - Visual progress bars for downloads, copies, and long operations
+- **Drag & Drop** - Drag files between panes (hold Shift to move instead of copy)
+- **Resizable Panes** - Drag divider to resize left/right panes dynamically
+
+**⌨️ Navigation & Selection:**
+- **Smart Pane Switching** - Focus management with history tracking per pane
+- **Multiple Selection** - Ctrl+Click, Shift+Click, Space bar, and Ctrl+A selection
+- **Keyboard Navigation** - Complete keyboard-driven interface with Escape key support
+- **File Filters** - Filter by name, type, size, and date with debounced notifications
+- **Context Menus** - Right-click file operations with comprehensive options
+
+**🔒 Security & Configuration:**
+- **Secure credential management** with AES-256 encryption and master password protection
+- **Multiple Credential Sources** - AWS CLI, environment variables, or manual entry
+- **State Persistence** - Remembers your location and settings across sessions
+- **Encrypted Configuration** - All sensitive data encrypted with master password
+
+**🤖 AI & Advanced Features:**
+- **AI Integration** - OpenAI and Anthropic AI search capabilities
+- **Plugin System** - Extensible architecture for custom features
+- **Theme System** - Classic Norton Commander, Modern Dark, and Light themes
+- **International Support** - RTL languages (Hebrew, Arabic) and multilanguage text
+- **File Viewer** - Built-in viewer for text, markdown, and image files with RTL support
+
+**📊 Operations & Feedback:**
+- **Job Management System** - Real-time progress tracking and comprehensive notifications
+- **Enhanced Notifications** - Detailed operation feedback with file details and collapse option
+- **Command History** - Track all operations with source/destination details
+- **Cross-Provider Operations** - Copy, move between different storage types
+- **Comprehensive Help** - F1 help dialog with all features, shortcuts, and GitHub repository info
 
 🔒 **Security Features:**
 - **Encrypted credential storage** using AES-256-CBC encryption
@@ -173,6 +200,65 @@ The current interface includes:
 - **File List** - Displays operation results
 - **Console Integration** - Detailed logging for debugging
 
+## ⌨️ Keyboard Shortcuts & Usage
+
+### 🎮 Navigation
+| Key | Action |
+|-----|--------|
+| **Arrow Keys** | Navigate through files and directories |
+| **Tab** | Switch between left and right panes |
+| **Enter** | Open selected file/directory |
+| **Escape** | Close dialogs and menus |
+
+### 🖱️ File Selection
+| Key Combination | Action |
+|----------------|--------|
+| **Space** | Toggle selection of focused file |
+| **Ctrl+A** | Select all files in current pane |
+| **Ctrl+Click** | Toggle individual file selection |
+| **Shift+Click** | Range selection from last selected to clicked |
+
+### 🔧 Function Keys
+| Key | Action |
+|-----|--------|
+| **F1** | Show comprehensive help dialog |
+| **F3** | Toggle filter bar |
+| **F4** | AI Search |
+| **F5** | Copy selected files |
+| **F6** | Move selected files |
+| **F7** | Create new directory |
+| **F8** | Delete selected files |
+| **F9** | Open configuration dialog |
+| **F10** | Quit application |
+
+### 🎯 Advanced Operations
+| Key Combination | Action |
+|----------------|--------|
+| **Ctrl+U** | Swap left and right panes |
+| **Ctrl+H** | Show command history |
+| **Double-Click** | Open file with system default application |
+| **Drag & Drop** | Copy files between panes |
+| **Shift+Drag** | Move files between panes |
+
+### 📁 File Operations
+- **Copy**: Select files and press F5 or drag to other pane
+- **Move**: Select files and press F6 or Shift+drag to other pane
+- **Delete**: Select files and press F8
+- **View**: Double-click any file to open with system application
+- **Cloud Files**: Automatically downloaded to ~/.aifs-temp before opening
+
+### 🔍 Filtering & Search
+- **F3** to toggle filter bar
+- Filter by name, type, size, and date
+- Debounced notifications (0.5s delay) to avoid spam
+- **F4** for AI-powered semantic search
+
+### 🎨 Customization
+- **Themes**: Access via menu bar (Classic, Modern Dark, Light)
+- **Configuration**: F9 for secure credential management
+- **Pane Resizing**: Drag the divider between panes
+- **State Persistence**: Automatically saves your location and settings
+
 ## 🔮 Future Enhancements
 
 ### Planned Features:
@@ -272,14 +358,77 @@ MIT
 
 ---
 
+## 🎮 Keyboard Shortcuts & Usage
+
+### Essential Shortcuts
+| Shortcut | Action | Description |
+|----------|--------|-------------|
+| **Arrow Keys** | Navigate | Move through file list |
+| **Tab** | Switch Panes | Switch between left and right panes with smart focus |
+| **Enter** | Open | Open selected file/directory |
+| **Space** | Toggle Selection | Toggle selection of current file |
+| **F1** | Help | Show comprehensive help dialog |
+| **F3** | Filter | Toggle filter bar |
+| **F4** | AI Search | Open AI search dialog |
+| **F5** | Copy | Copy selected files |
+| **F6** | Move | Move selected files |
+| **F7** | New Directory | Create new directory |
+| **F8** | Delete | Delete selected files |
+| **F9** | Config | Open configuration dialog |
+| **F10** | Quit | Quit application |
+| **Ctrl+A** | Select All | Select all files |
+| **Ctrl+Click** | Toggle Selection | Toggle individual file selection |
+| **Shift+Click** | Range Selection | Select range of files |
+| **Ctrl+H** | History | Show command history |
+| **Escape** | Close Dialogs | Close any open dialog |
+
+### Multiple Selection
+- **Single Selection**: Click on a file
+- **Toggle Selection**: Ctrl+Click on files
+- **Range Selection**: Shift+Click to select a range
+- **Select All**: Ctrl+A
+- **Space Bar**: Toggle selection of currently highlighted file
+
+### Pane Switching
+- **Tab Key**: Switch between left and right panes
+- **Smart Focus**: Automatically focuses on first file or last selected file
+- **History Tracking**: Remembers your position in each pane
+
+## 🌐 Cloud Storage Testing
+
+### AWS S3 Setup
+1. **Configure AWS credentials** (one of these methods):
+   - Use AWS CLI: `aws configure`
+   - Use the app's config dialog (F9) to enter credentials securely
+   - Set environment variables: `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`
+
+2. **Test S3 operations**:
+   - Switch right pane to S3 provider
+   - Browse your S3 buckets
+   - Upload files by dragging from local pane to S3 pane
+   - Copy files between S3 buckets
+   - Delete files from S3
+
+### Google Cloud Storage Setup
+1. **Create service account** in Google Cloud Console
+2. **Download JSON key file**
+3. **Configure in app** (F9 → Providers tab)
+4. **Test GCP operations** similar to S3
+
 ## 🎉 Success!
 
-Your AIFS Client is now fully functional! The application successfully:
+Your AIFS Client is now fully functional with advanced features! The application successfully:
 
-- ✅ Resolves the Electron module import issues
-- ✅ Provides working AWS S3 integration
-- ✅ Supports local file system operations
-- ✅ Includes a job management system
-- ✅ Offers a clean testing interface
+- ✅ **Norton Commander UI** with authentic blue theme
+- ✅ **Cross-Cloud Support** for Local, S3, and GCP
+- ✅ **AI Integration** with OpenAI and Anthropic
+- ✅ **Smart Pane Switching** with focus management
+- ✅ **Multiple Selection** with keyboard shortcuts
+- ✅ **File Viewer** with RTL and multilanguage support
+- ✅ **Theme System** with three professional themes
+- ✅ **Comprehensive Help** with F1 dialog
+- ✅ **Enhanced Notifications** with file details
+- ✅ **Command History** with operation tracking
+- ✅ **Secure Configuration** with encrypted storage
 
-Ready to test your cloud storage operations! 🚀
+Ready to test your cloud storage operations and AI features! 🚀

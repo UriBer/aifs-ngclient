@@ -42,7 +42,7 @@ coverage
 out/
 
 # AIFS Client specific
-working-electron-app/
+# working-electron-app/ - Now included as main working app
 
 # Encrypted configuration files
 *.enc
