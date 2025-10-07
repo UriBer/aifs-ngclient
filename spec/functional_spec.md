@@ -2,7 +2,7 @@
 
 ## 1 Overview and Goals
 
-The aim of the **Commander** client is to provide a user‑friendly, dual‑pane file manager (similar to classic Norton Commander) for managing data across disparate storage systems.  The application allows you to **create, list, view, upload, download, copy, move, rename and delete** objects across these providers:
+The aim of the *AIFS Commander** client is to provide a user‑friendly, dual‑pane file manager and data manager (similar to classic Norton Commander) for managing data across disparate storage systems and databases. The application allows you to **create, list, view, upload, download, copy, move, rename and delete** objects across these providers:
 
 * **Local file system** (`file://`) – regular files and directories on the user’s machine.
 * **Amazon S3** (`s3://`) – objects stored in Amazon S3 buckets.  S3 objects can be up to 5 TB in size and copying objects smaller than 5 GB can be done in a single atomic operation【835615796489522†L680-L686】.
@@ -10,13 +10,179 @@ The aim of the **Commander** client is to provide a user‑friendly, dual‑pane
 * **Azure Blob Storage** (`az://`) – block/append/page blobs in an Azure storage account.  Copy operations are asynchronous by default; copying within the same account can complete synchronously【248994889106255†L448-L454】.  Operations support copying between blobs, replacing blobs, copying from the Azure File service, and promoting snapshots【248994889106255†L448-L469】.
 * **AIFS via gRPC** (`aifs://`) – an AI‑centric file system accessible via a gRPC API.  AIFS exposes namespace/branch abstractions; assets can have snapshots and metadata such as BLAKE3 checksums and lineage.
 
-The application runs as an **Electron** desktop app with a React/TypeScript renderer and a Node main process.  A provider‑abstraction layer implements CRUD operations for each storage backend.  The design emphasises **consistency** across providers, **extensibility** (new providers can be added without altering the UI), **performance** (parallel transfers and resumable uploads/downloads), and **integrity** (checksum validation).  The specification is written in a **test‑driven** style: every functional requirement includes acceptance tests to guide development.
+
+### 3.20 Database and Data Warehouse Providers
+
+#### FR‑26: Database Provider Support
+
+The application shall support database and data warehouse providers as specialized object stores:
+
+**Supported Database Providers:**
+* **Google BigQuery** (`bigquery://`) – Tables, views, datasets, and query results
+* **Amazon Redshift** (`redshift://`) – Tables, views, clusters, and query results  
+* **Azure Synapse** (`synapse://`) – Tables, views, workspaces, and query results
+* **Oracle Autonomous Data Warehouse** (`autonomous://`) – Tables, views, and query results
+* **Snowflake** (`snowflake://`) – Tables, views, databases, and query results
+* **Databricks SQL** (`databricks://`) – Tables, views, catalogs, and query results
+
+**Data Pipeline Providers:**
+* **Google Dataform** (`dataform://`) – Workflows, repositories, and compilation results
+* **dbt (Data Build Tool)** (`dbt://`) – Models, tests, documentation, and run results
+* **Google Cloud Composer** (`composer://`) – DAGs, tasks, and workflow executions
+* **Azure Data Factory** (`datafactory://`) – Pipelines, datasets, and run results
+* **Google Data Integration/Data Flow** (`dataflow://`) – Jobs, templates, and execution results
+* **Prefect** (`prefect://`) – Flows, tasks, and run results
+* **Dagster** (`dagster://`) – Assets, jobs, and run results
+* **Databricks Workflows** (`databricks-workflows://`) – Jobs, tasks, and run results
+
+**Database Object Types:**
+* **Tables**: Structured data with schema information
+* **Views**: Virtual tables based on queries
+* **Datasets/Databases**: Containers for tables and views
+* **Queries**: SQL query definitions and results
+* **Schemas**: Table structure and metadata
+* **Indexes**: Database indexes and constraints
+* **Stored Procedures**: Database functions and procedures
+* **Triggers**: Database triggers and event handlers
+
+**Database Operations:**
+* **List**: List tables, views, datasets, and other database objects
+* **Query**: Execute SQL queries and return results
+* **Schema**: Retrieve table schemas and metadata
+* **Export**: Export table data to various formats (CSV, JSON, Parquet)
+* **Import**: Import data from files into database tables
+* **Compare**: Compare table schemas and data between databases
+* **Sync**: Synchronize data between different database providers
+
+**Acceptance Tests**
+
+1. **testBigQueryConnection** – Connect to BigQuery and list datasets and tables
+2. **testRedshiftQuery** – Execute SQL query on Redshift and return results
+3. **testSnowflakeExport** – Export Snowflake table data to CSV format
+4. **testDatabricksWorkflow** – List and execute Databricks workflows
+5. **testDbtModels** – List dbt models and their dependencies
+6. **testDataformCompilation** – Compile Dataform workflows and view results
+7. **testCrossDatabaseSync** – Sync table data between different database providers
+8. **testDatabaseSchemaComparison** – Compare schemas between different databases
+
+#### FR‑27: Data Pipeline Management
+
+The application shall provide comprehensive data pipeline management capabilities:
+
+**Pipeline Operations:**
+* **List Pipelines**: List all available pipelines and their status
+* **Execute Pipelines**: Run pipelines with parameter configuration
+* **Monitor Execution**: Real-time monitoring of pipeline execution
+* **View Results**: Display pipeline execution results and logs
+* **Schedule Pipelines**: Configure pipeline scheduling and triggers
+* **Pipeline Dependencies**: Manage pipeline dependencies and execution order
+
+**Pipeline Types:**
+* **ETL Pipelines**: Extract, Transform, Load data processing
+* **Data Quality Pipelines**: Data validation and quality checks
+* **ML Pipelines**: Machine learning model training and inference
+* **Analytics Pipelines**: Data analysis and reporting workflows
+* **Data Migration**: Data transfer between different systems
+* **Real-time Pipelines**: Streaming data processing workflows
+
+**Pipeline Monitoring:**
+* **Execution Status**: Real-time status of pipeline executions
+* **Performance Metrics**: Execution time, resource usage, and throughput
+* **Error Handling**: Error detection, logging, and notification
+* **Retry Logic**: Automatic retry for failed pipeline steps
+* **Alerting**: Notifications for pipeline failures and completions
+
+**Acceptance Tests**
+
+1. **testPipelineExecution** – Execute a data pipeline and monitor its progress
+2. **testPipelineScheduling** – Schedule a pipeline to run at specific times
+3. **testPipelineDependencies** – Verify pipeline dependencies are respected
+4. **testPipelineMonitoring** – Monitor pipeline execution in real-time
+5. **testPipelineErrorHandling** – Handle pipeline failures gracefully
+6. **testPipelineResults** – View and export pipeline execution results
+
+#### FR‑28: Database Schema Management
+
+The application shall provide database schema management capabilities:
+
+**Schema Operations:**
+* **Schema Discovery**: Automatically discover database schemas
+* **Schema Comparison**: Compare schemas between different databases
+* **Schema Migration**: Migrate schemas between database providers
+* **Schema Validation**: Validate schema consistency and integrity
+* **Schema Documentation**: Generate and maintain schema documentation
+
+**Schema Types:**
+* **Table Schemas**: Column definitions, data types, and constraints
+* **View Schemas**: View definitions and dependencies
+* **Index Schemas**: Index definitions and performance metrics
+* **Relationship Schemas**: Foreign key relationships and dependencies
+* **Permission Schemas**: Access control and permission definitions
+
+**Schema Tools:**
+* **Schema Diff**: Visual differences between schema versions
+* **Schema Merge**: Merge schema changes from different sources
+* **Schema Backup**: Backup and restore schema definitions
+* **Schema Versioning**: Track schema changes over time
+* **Schema Validation**: Validate schema against business rules
+
+**Acceptance Tests**
+
+1. **testSchemaDiscovery** – Automatically discover database schemas
+2. **testSchemaComparison** – Compare schemas between databases
+3. **testSchemaMigration** – Migrate schemas between providers
+4. **testSchemaValidation** – Validate schema consistency
+5. **testSchemaDocumentation** – Generate schema documentation
+
+#### FR‑29: Data Quality and Governance
+
+The application shall provide data quality and governance capabilities:
+
+**Data Quality Features:**
+* **Data Profiling**: Analyze data quality and statistics
+* **Data Validation**: Validate data against business rules
+* **Data Cleansing**: Identify and fix data quality issues
+* **Data Monitoring**: Continuous monitoring of data quality
+* **Data Lineage**: Track data flow and transformations
+
+**Governance Features:**
+* **Data Catalog**: Centralized catalog of data assets
+* **Metadata Management**: Manage data metadata and documentation
+* **Access Control**: Control access to data assets
+* **Compliance**: Ensure compliance with data regulations
+* **Audit Trail**: Track all data access and modifications
+
+**Quality Metrics:**
+* **Completeness**: Percentage of non-null values
+* **Accuracy**: Data accuracy against reference data
+* **Consistency**: Data consistency across systems
+* **Timeliness**: Data freshness and update frequency
+* **Validity**: Data validity against defined rules
+
+**Acceptance Tests**
+
+1. **testDataProfiling** – Profile data quality and generate statistics
+2. **testDataValidation** – Validate data against business rules
+3. **testDataLineage** – Track data lineage and transformations
+4. **testDataCatalog** – Manage centralized data catalog
+5. **testDataGovernance** – Implement data governance policies
+
+
+The application is plugin first app, the app can be divided into blocks that runs plugins inside, it should manage plugin failure and hold it in sandboox so if plugin fail there will be graceful error not app crash or stuck.
+the app plugins are in two panes right and left by default like in norton commander, yet it can be divded to 3 4 and more panes horizontally or vertically 
+
+the app will run in two flavours - shell version similar to norton commander
+an **Electron** desktop app with a React/TypeScript renderer and a Node main process. 
+the two will have same functionalities and as similar as possible look and feel.
+
+ A provider‑abstraction layer implements CRUD operations for each storage backend.  
+ The design emphasises **consistency** across providers, **extensibility** (new providers can be added without altering the UI), **performance** (parallel transfers and resumable uploads/downloads), and **integrity** (checksum validation).  The specification is written in a **test‑driven** style: every functional requirement includes acceptance tests to guide development.
 
 ## 2 Terminology and Entities
 
 | Term            | Meaning |
 |-----------------|---------|
-| **Provider**    | One of the supported backends (file, S3, GCS, Azure, AIFS). Each provider implements the `IObjectStore` interface described in this specification. |
+| **Provider**    | One of the supported backends (file, S3, GCS, Azure, AIFS, BigQuery, Redshift, Synapse, Autonomous DW, Snowflake, Databricks, Dataform, dbt, Composer, Data Factory, Data Flow, Prefect, Dagster, Databricks Workflows). Each provider implements the `IObjectStore` interface described in this specification. |
 | **URI**         | A fully qualified object identifier, e.g. `s3://my-bucket/path/to/object.txt`. URIs are the primary way the user and the system identify resources. |
 | **Object**      | An indivisible item stored in a provider: a file on the local file system, a blob in Azure, an object in S3/GCS, or an asset in AIFS. |
 | **Directory**   | A container of objects.  Some providers (e.g. S3) are flat but emulate directories via prefixes and delimiters; in S3 the `CommonPrefixes` list enumerates pseudo‑directories【571753186976113†L1150-L1176】. |
@@ -32,7 +198,7 @@ The application runs as an **Electron** desktop app with a React/TypeScript rend
 
 Implement an `IObjectStore` TypeScript interface with the following asynchronous methods:
 
-* `scheme(): 'file'|'s3'|'gcs'|'az'|'aifs'` – returns the URI scheme.
+* `scheme(): 'file'|'s3'|'gcs'|'az'|'aifs'|'bigquery'|'redshift'|'synapse'|'autonomous'|'snowflake'|'databricks'|'dataform'|'dbt'|'composer'|'datafactory'|'dataflow'|'prefect'|'dagster'|'databricks-workflows'` – returns the URI scheme.
 * `list(uri: string, opts: {prefix?: string; delimiter?: string; pageToken?: string; pageSize?: number}): Promise<{items: Obj[]; nextPageToken?: string}>` – lists objects and pseudo‑directories.  For S3, the `CommonPrefixes` field lists keys that act like subdirectories【571753186976113†L1150-L1176】.  Pagination uses provider‑specific tokens.
 * `stat(uri: string): Promise<Obj>` – returns metadata for a single object.
 * `get(uri: string, destPath: string): Promise<void>` – downloads an object to a local path.
@@ -253,13 +419,13 @@ All long‑running operations (upload, download, copy, move, delete) should be e
 2. **testPermissionDenied** – Attempt to delete an object without permission.  Verify that the error message indicates insufficient permissions.
 3. **testEmbeddedCopyError** – Simulate an S3 cross‑region copy that returns `200 OK` but contains an error (e.g. by disconnecting mid‑copy).  Ensure that the provider detects the embedded error and retries or reports failure【835615796489522†L777-L806】.
 
-### 3.10 AIFS‑Specific Features
+### 3.10 AIFS‑Specific Features
 
-#### FR‑15: Namespace and branch navigation
+#### FR‑15: Namespace and branch navigation
 
 AIFS introduces namespaces and branches analogous to Git branches.  The client must interpret URIs of the form `aifs://namespace/branch/` as directories.  Listing a namespace should show branches; listing a branch should show assets.
 
-#### FR‑16: Asset operations
+#### FR‑16: Asset operations
 
 * `put()` should call the gRPC `PutAsset` streaming method.  Additional metadata (e.g. embeddings, tags) may be supplied.
 * `get()` downloads the asset via gRPC streaming.
@@ -271,6 +437,415 @@ AIFS introduces namespaces and branches analogous to Git branches.  The client m
 1. **testListAifsNamespace** – Create an AIFS namespace with branches `main` and `dev`.  Call `list('aifs://namespace/')` and verify that both branches appear as directories.
 2. **testUploadAsset** – Upload a local file to `aifs://namespace/main/asset1`.  Verify that the asset appears when listing the branch and that metadata (checksum, size) are correct.
 3. **testDeleteAssetWithSnapshot** – Create a snapshot of an asset, then attempt to delete the asset.  Expect a refusal because a snapshot references it.
+
+### 3.11 Plugin System Architecture
+
+#### FR‑17: Plugin System Architecture
+
+The application shall implement a process-level plugin architecture where:
+
+**Plugin Isolation:**
+* Each provider plugin runs in a separate Node.js process
+* Plugins communicate with the main application via secure message passing
+* Plugin crashes are isolated and don't affect the main application
+* Plugins have limited access to system resources (CPU, memory, network)
+
+**Plugin Lifecycle:**
+* `install` – Plugin is downloaded and installed to the plugin directory
+* `activate` – Plugin is loaded and initialized
+* `deactivate` – Plugin is stopped but remains installed
+* `uninstall` – Plugin is completely removed from the system
+
+**Plugin Communication:**
+* Use secure IPC channels for plugin-to-main communication
+* Message passing protocol supports: commands, responses, events, errors
+* Plugins can only access resources through the main application's API
+* All plugin communication is logged for security and debugging
+
+**Plugin Security:**
+* Plugins run with minimal privileges
+* No direct file system access outside designated directories
+* Network access only through approved channels
+* Plugin code is sandboxed and cannot access main application memory
+
+**Acceptance Tests**
+
+1. **testPluginIsolation** – Crash a plugin process and verify main app continues running
+2. **testPluginCommunication** – Verify plugins can only communicate through approved channels
+3. **testPluginLifecycle** – Test install, activate, deactivate, uninstall cycle
+4. **testPluginSecurity** – Verify plugins cannot access unauthorized resources
+
+### 3.12 Multi-Pane Layout System
+
+#### FR‑18: Multi-Pane Layout System
+
+The application shall support flexible pane arrangements:
+
+**Pane Layouts:**
+* **Side-by-Side**: Two panes horizontally (default)
+* **Split Views**: Panes can be split horizontally or vertically
+* **Grid Layout**: Multiple panes in grid arrangement (2x2, 3x3, etc.)
+* **Tabbed Panes**: Panes can be organized in tabs
+
+**Pane Navigation:**
+* `Tab` key moves focus clockwise through panes
+* `Shift+Tab` moves focus counter-clockwise
+* Focus indicator clearly shows active pane
+* Each pane maintains its own navigation state
+
+**Pane Persistence:**
+* Pane arrangements persist across application sessions
+* Each pane remembers its last visited URI
+* Pane view modes (list, grid, tree) are preserved
+* Pane-specific settings are maintained
+
+**View Modes:**
+* **List View**: Traditional file list with details
+* **Grid View**: Icon-based layout with thumbnails
+* **Tree View**: Hierarchical directory structure
+* **Preview View**: File content preview with metadata
+
+**Acceptance Tests**
+
+1. **testPaneNavigation** – Verify Tab key moves focus correctly
+2. **testPanePersistence** – Verify pane state is restored on restart
+3. **testViewModes** – Verify all view modes work correctly
+4. **testPaneSplitting** – Verify panes can be split and resized
+
+### 3.13 Terminal User Interface (TUI)
+
+#### FR‑19: Terminal User Interface
+
+The application shall provide a TUI version with identical functionality:
+
+**TUI Framework:**
+* Use cross-platform terminal libraries (blessed.js, ink, or similar)
+* Support Linux, Windows, and macOS terminals
+* Handle terminal resizing and color schemes
+* Support both monochrome and color terminals
+
+**TUI Features:**
+* Identical keyboard shortcuts as desktop version
+* Same provider support as desktop version
+* Real-time progress indicators in terminal
+* Terminal-based file preview and editing
+
+**TUI Limitations:**
+* No drag-and-drop support
+* Limited graphical file previews
+* Text-based progress indicators only
+* Terminal size limitations for large file lists
+
+**Cross-Platform Support:**
+* Windows: PowerShell, Command Prompt, Windows Terminal
+* Linux: bash, zsh, fish shells
+* macOS: Terminal.app, iTerm2
+
+**Acceptance Tests**
+
+1. **testTUICompatibility** – Verify TUI works on all supported terminals
+2. **testTUIProviders** – Verify all providers work in TUI mode
+3. **testTUIKeyboard** – Verify keyboard shortcuts work in TUI
+4. **testTUIPreview** – Verify file preview works in TUI
+
+### 3.14 Configuration Management
+
+#### FR‑20: Configuration Management
+
+The application shall implement comprehensive configuration management:
+
+**Configuration Storage:**
+* **Format**: JSON with encryption
+* **Location**: Platform-specific settings directory
+* **Encryption**: AES-256 encryption with user password
+* **Backup**: Automatic configuration backup on changes
+
+**Configuration Structure:**
+```json
+{
+  "version": "1.0.0",
+  "settings": {
+    "ui": {
+      "theme": "dark",
+      "paneLayout": "side-by-side",
+      "viewMode": "list"
+    },
+    "performance": {
+      "maxConcurrentJobs": 5,
+      "memoryLimit": "2GB",
+      "networkThrottle": "100MB/s"
+    },
+    "logging": {
+      "level": "info",
+      "maxFileSize": "10MB",
+      "maxFiles": 5
+    },
+    "providers": {
+      "s3": { "profiles": [...] },
+      "gcs": { "profiles": [...] },
+      "bigquery": { "profiles": [...] },
+      "redshift": { "profiles": [...] },
+      "snowflake": { "profiles": [...] },
+      "databricks": { "profiles": [...] }
+    },
+    "databases": {
+      "connectionPooling": true,
+      "maxConnections": 10,
+      "queryTimeout": 300,
+      "schemaCache": true
+    },
+    "pipelines": {
+      "maxConcurrentRuns": 5,
+      "defaultTimeout": 3600,
+      "retryAttempts": 3,
+      "monitoringEnabled": true
+    }
+  }
+}
+```
+
+**Environment Variables:**
+* Support environment variable overrides
+* Priority: CLI args > env vars > config file > defaults
+* Secure handling of sensitive environment variables
+
+**Settings Persistence:**
+* Settings sync between desktop and TUI versions
+* Configuration migration for version updates
+* Validation of configuration on startup
+
+**Acceptance Tests**
+
+1. **testConfigEncryption** – Verify configuration is properly encrypted
+2. **testConfigMigration** – Verify configuration migrates between versions
+3. **testEnvOverrides** – Verify environment variables override config
+4. **testSettingsSync** – Verify settings sync between desktop and TUI
+
+### 3.15 Logging and Monitoring
+
+#### FR‑21: Logging and Monitoring
+
+The application shall implement comprehensive logging and monitoring:
+
+**Logging Levels:**
+* **ERROR**: Critical errors that prevent operation
+* **WARN**: Warning conditions that don't prevent operation
+* **INFO**: General information about application flow
+* **DEBUG**: Detailed information for debugging
+* **TRACE**: Very detailed information for troubleshooting
+
+**Log Files:**
+* **Application Log**: General application events and errors
+* **Command History**: All user commands and operations
+* **Performance Log**: Performance metrics and timing data
+* **Security Log**: Authentication and authorization events
+
+**Log Configuration:**
+```json
+{
+  "logging": {
+    "level": "info",
+    "maxFileSize": "10MB",
+    "maxFiles": 5,
+    "enableConsole": true,
+    "enableFile": true,
+    "enableRemote": false
+  }
+}
+```
+
+**Performance Metrics:**
+* Transfer speeds and throughput
+* Memory usage and garbage collection
+* Network latency and retry counts
+* Job completion times and success rates
+
+**Acceptance Tests**
+
+1. **testLogRotation** – Verify log files rotate when size limit reached
+2. **testLogLevels** – Verify different log levels are handled correctly
+3. **testPerformanceMetrics** – Verify performance data is collected
+4. **testCommandHistory** – Verify all commands are logged
+
+### 3.16 Advanced File Operations
+
+#### FR‑22: Advanced File Operations
+
+The application shall support comprehensive file operations:
+
+**File Preview Support:**
+* **Text Files**: CSV, SQL, MD, TXT with syntax highlighting
+* **Data Files**: Parquet, BigQuery tables, Redshift, Synapse
+* **Large Files**: Support for terabyte-sized files with streaming
+* **Binary Files**: Hex view for binary files
+
+**Batch Operations:**
+* **Select All**: Select all items in current pane
+* **Invert Selection**: Invert current selection
+* **Select by Filter**: Select items matching filter criteria
+* **Select by Type**: Select files by extension or type
+
+**Undo/Redo System:**
+* **History Log**: All operations logged for undo/redo
+* **Operation Tracking**: Track file operations for rollback
+* **State Management**: Maintain application state for undo
+* **Limitations**: Some operations (network transfers) cannot be undone
+
+**File Comparison:**
+* **Side-by-Side**: Compare two files side-by-side
+* **Diff View**: Show differences between files
+* **Synchronization**: Sync directories between providers
+* **Conflict Resolution**: Handle merge conflicts during sync
+
+**Acceptance Tests**
+
+1. **testFilePreview** – Verify all supported file types can be previewed
+2. **testBatchOperations** – Verify batch selection and operations work
+3. **testUndoRedo** – Verify undo/redo works for supported operations
+4. **testFileComparison** – Verify file comparison and sync work
+
+### 3.17 Security and Permissions
+
+#### FR‑23: Security and Permissions
+
+The application shall implement comprehensive security measures:
+
+**File Permissions:**
+* **Cross-Provider**: Handle permissions consistently across providers
+* **ACL Support**: Support Access Control Lists where available
+* **Permission Mapping**: Map permissions between different provider systems
+* **Permission Validation**: Validate permissions before operations
+
+**Encryption:**
+* **At Rest**: Encrypt sensitive data in configuration files
+* **In Transit**: Use TLS/SSL for all network communications
+* **Key Management**: Secure key storage and rotation
+* **Data Protection**: Protect user data from unauthorized access
+
+**Audit Logging:**
+* **Security Events**: Log all security-related events
+* **Access Control**: Track access to sensitive resources
+* **Authentication**: Log authentication attempts and failures
+* **Authorization**: Track permission changes and access grants
+
+**Security Features:**
+* **Credential Management**: Secure storage of provider credentials
+* **Session Management**: Secure session handling and timeout
+* **Input Validation**: Validate all user inputs and file operations
+* **Error Handling**: Secure error messages that don't leak information
+
+**Database Security:**
+* **Connection Security**: Encrypted connections to all database providers
+* **Credential Rotation**: Automatic rotation of database credentials
+* **Query Sanitization**: Prevent SQL injection attacks
+* **Access Logging**: Log all database access and queries
+* **Data Masking**: Mask sensitive data in logs and previews
+* **Role-Based Access**: Implement role-based access control for database operations
+
+**Acceptance Tests**
+
+1. **testPermissionHandling** – Verify permissions are handled correctly
+2. **testEncryption** – Verify data is encrypted at rest and in transit
+3. **testAuditLogging** – Verify security events are logged
+4. **testCredentialSecurity** – Verify credentials are stored securely
+
+### 3.18 Performance and Scalability
+
+#### FR‑24: Performance and Scalability
+
+The application shall handle large-scale operations efficiently:
+
+**Memory Management:**
+* **Configurable Limits**: Set memory usage limits in configuration
+* **Garbage Collection**: Optimize garbage collection for large operations
+* **Memory Swapping**: Support configurable memory swapping
+* **Resource Monitoring**: Monitor memory usage and alert on limits
+
+**Network Management:**
+* **Bandwidth Throttling**: Configurable network speed limits
+* **Connection Pooling**: Reuse connections for efficiency
+* **Retry Logic**: Intelligent retry with exponential backoff
+* **Timeout Handling**: Configurable timeouts for operations
+
+**Concurrent Operations:**
+* **Configurable Limits**: Set maximum concurrent operations
+* **Queue Management**: Intelligent job queuing and prioritization
+* **Resource Allocation**: Fair resource allocation across operations
+* **Performance Monitoring**: Track and optimize performance metrics
+
+**Large File Support:**
+* **Streaming**: Stream large files without loading into memory
+* **Chunked Operations**: Break large operations into manageable chunks
+* **Progress Tracking**: Real-time progress for large operations
+* **Resume Support**: Resume interrupted large operations
+
+**Database Performance:**
+* **Query Optimization**: Optimize database queries for performance
+* **Connection Pooling**: Efficient connection management for databases
+* **Caching**: Cache frequently accessed database schemas and metadata
+* **Parallel Queries**: Execute multiple database queries in parallel
+* **Data Streaming**: Stream large datasets without memory issues
+* **Index Management**: Manage database indexes for optimal performance
+
+**Acceptance Tests**
+
+1. **testMemoryLimits** – Verify memory limits are enforced
+2. **testNetworkThrottling** – Verify bandwidth throttling works
+3. **testConcurrentLimits** – Verify concurrent operation limits
+4. **testLargeFileSupport** – Verify terabyte files are handled efficiently
+
+### 3.19 User Experience and Accessibility
+
+#### FR‑25: User Experience and Accessibility
+
+The application shall provide excellent user experience:
+
+**Onboarding:**
+* **First-Time Setup**: Simple wizard for initial configuration
+* **Provider Setup**: Guided setup for each provider
+* **Credential Management**: Secure credential entry and storage
+* **Tutorial**: Interactive tutorial for new users
+
+**Help System:**
+* **Comprehensive Documentation**: Complete user manual and API docs
+* **Contextual Help**: Help available for each feature
+* **Keyboard Shortcuts**: Complete keyboard shortcut reference
+* **Video Tutorials**: Video guides for complex operations
+
+**Accessibility:**
+* **Screen Reader Support**: Full screen reader compatibility
+* **Keyboard Navigation**: Complete keyboard navigation support
+* **High Contrast**: Support for high contrast themes
+* **Font Scaling**: Support for different font sizes
+
+**Internationalization:**
+* **RTL Support**: Right-to-left language support
+* **LTR Support**: Left-to-right language support
+* **Hebrew Support**: Full Hebrew language support
+* **Complex Encodings**: Support for complex character encodings
+* **Unicode**: Full Unicode support for all languages
+
+**Database User Experience:**
+* **Query Builder**: Visual query builder for non-technical users
+* **Schema Explorer**: Intuitive database schema exploration
+* **Data Preview**: Rich data preview with formatting and filtering
+* **Query History**: Track and reuse previous queries
+* **Result Export**: Export query results to various formats
+* **Database Documentation**: Auto-generated database documentation
+* **Data Lineage Visualization**: Visual representation of data flow
+
+**Acceptance Tests**
+
+1. **testOnboarding** – Verify first-time setup works smoothly
+2. **testAccessibility** – Verify accessibility features work
+3. **testInternationalization** – Verify RTL and complex encodings work
+4. **testHelpSystem** – Verify help system is comprehensive
+5. **testDatabaseConnection** – Verify database connections work correctly
+6. **testQueryExecution** – Verify database queries execute properly
+7. **testSchemaManagement** – Verify schema operations work correctly
+8. **testPipelineExecution** – Verify data pipelines execute successfully
+9. **testDataQuality** – Verify data quality features work
+10. **testCrossDatabaseSync** – Verify cross-database synchronization works
 
 ## 4 Non‑Functional Requirements
 
@@ -292,12 +867,30 @@ AIFS introduces namespaces and branches analogous to Git branches.  The client m
 * Keyboard navigation is essential; all actions should be accessible via keyboard shortcuts.
 * Support internationalisation (e.g. right‑to‑left languages) and dark/light themes.
 
-### 4.4 Extensibility
+### 4.4 Extensibility
 
 * The provider abstraction must make it straightforward to add new storage backends.  New providers should implement `IObjectStore` and register themselves in a provider registry.
 * UI components must not hard‑code provider names or behaviours.
+* Database providers must support standard SQL operations and schema introspection.
+* Pipeline providers must support standard workflow execution and monitoring interfaces.
 
-### 4.5 Platform Support
+### 4.5 Database and Data Warehouse Performance
+
+* **Query Performance**: Database queries must execute efficiently with proper indexing and optimization.
+* **Data Transfer**: Large dataset transfers must use streaming and chunked operations.
+* **Concurrent Queries**: Support multiple concurrent database queries with connection pooling.
+* **Schema Operations**: Schema comparison and migration must handle large schemas efficiently.
+* **Pipeline Execution**: Data pipelines must execute with proper resource management and monitoring.
+
+### 4.6 Data Governance and Compliance
+
+* **Data Lineage**: Track data flow and transformations across all providers.
+* **Access Control**: Implement fine-grained access control for database objects.
+* **Audit Logging**: Log all database operations and data access for compliance.
+* **Data Encryption**: Encrypt sensitive data in transit and at rest.
+* **Compliance**: Support GDPR, HIPAA, and other data protection regulations.
+
+### 4.7 Platform Support
 
 * The client must run on macOS, Windows and Linux.  Use Electron with cross‑platform file APIs.  For packaging, use `electron-builder`.
 
@@ -316,7 +909,7 @@ AIFS introduces namespaces and branches analogous to Git branches.  The client m
 * Use **Jest** (TypeScript) for unit tests.  Provide mocks for each provider’s SDK to avoid actual network calls.  For integration tests, use local instances (e.g. `minio` for S3, `gsutil` emulator for GCS, Azurite for Azure) or test environments with temporary buckets.
 * For the UI, use **React Testing Library** and **Playwright** for end‑to‑end tests.  Simulate keyboard shortcuts and verify DOM updates.
 
-### 6.2 Test Organisation
+### 6.2 Test Organisation
 
 Tests should be grouped by functional area:
 
@@ -326,6 +919,19 @@ Tests should be grouped by functional area:
 * `ui.test.tsx` – Tests for the React UI: keyboard shortcuts, drag‑and‑drop, context menus, error dialogs.
 * `auth.test.ts` – Tests for credentials, profiles and permission errors.
 * `aifs.test.ts` – Tests specific to AIFS features.
+* `plugin.test.ts` – Tests for plugin system architecture, isolation, and communication.
+* `pane.test.ts` – Tests for multi-pane layout, navigation, and persistence.
+* `tui.test.ts` – Tests for terminal user interface functionality.
+* `config.test.ts` – Tests for configuration management, encryption, and migration.
+* `logging.test.ts` – Tests for logging, monitoring, and performance metrics.
+* `fileOps.test.ts` – Tests for advanced file operations, preview, and batch operations.
+* `security.test.ts` – Tests for security, permissions, and audit logging.
+* `performance.test.ts` – Tests for performance, scalability, and large file handling.
+* `accessibility.test.ts` – Tests for accessibility features and internationalization.
+* `database.test.ts` – Tests for database providers (BigQuery, Redshift, Synapse, etc.).
+* `pipeline.test.ts` – Tests for data pipeline management (Dataform, dbt, Composer, etc.).
+* `schema.test.ts` – Tests for database schema management and comparison.
+* `dataQuality.test.ts` – Tests for data quality and governance features.
 
 ### 6.3 Sample Test Case (Illustrative)
 
@@ -367,5 +973,239 @@ describe('S3Provider.copy', () => {
 });
 ```
 
-This example clarifies expected behaviour and ties it back to the documentation that limits single‑call copies to 5 GB【835615796489522†L680-L686】.
+This example clarifies expected behaviour and ties it back to the documentation that limits single‑call copies to 5 GB【835615796489522†L680-L686】.
+
+## 7 Implementation Phases
+
+### 7.1 Phase 1: Core Foundation (MVP)
+**Duration**: 8-10 weeks
+
+**Core Features:**
+* Basic dual-pane file browser (FR-11)
+* Provider abstraction layer (FR-1)
+* File system and S3 providers (FR-2 to FR-7)
+* Basic job engine (FR-10)
+* Simple configuration management (FR-20)
+* Basic error handling (FR-14)
+
+**Deliverables:**
+* Working Electron application
+* File and S3 provider implementations
+* Basic UI with keyboard shortcuts
+* Job progress tracking
+* Configuration persistence
+
+### 7.2 Phase 2: Plugin Architecture (FR-17)
+**Duration**: 6-8 weeks
+
+**Core Features:**
+* Process-level plugin isolation
+* Secure plugin communication
+* Plugin lifecycle management
+* Provider plugins for GCS, Azure, AIFS
+* Plugin security sandboxing
+
+**Deliverables:**
+* Plugin system architecture
+* All provider plugins
+* Plugin management UI
+* Security audit and testing
+
+### 7.8 Phase 8: Database and Data Warehouse Providers (FR-26, FR-27, FR-28, FR-29)
+**Duration**: 10-12 weeks
+
+**Core Features:**
+* Database provider implementations (BigQuery, Redshift, Synapse, Autonomous DW, Snowflake, Databricks)
+* Data pipeline management (Dataform, dbt, Composer, Data Factory, Data Flow, Prefect, Dagster)
+* Database schema management and comparison
+* Data quality and governance features
+* Cross-database synchronization
+
+**Deliverables:**
+* All database provider plugins
+* Pipeline management system
+* Schema management tools
+* Data quality monitoring
+* Cross-database operations
+
+### 7.3 Phase 3: Advanced UI (FR-18, FR-19)
+**Duration**: 6-8 weeks
+
+**Core Features:**
+* Multi-pane layout system
+* Terminal User Interface (TUI)
+* Advanced view modes (list, grid, tree)
+* Pane persistence and navigation
+* Cross-platform terminal support
+
+**Deliverables:**
+* Flexible pane arrangements
+* Working TUI version
+* View mode implementations
+* Navigation improvements
+
+### 7.4 Phase 4: Advanced Operations (FR-22)
+**Duration**: 8-10 weeks
+
+**Core Features:**
+* File preview system
+* Batch operations
+* Undo/redo functionality
+* File comparison and sync
+* Large file support (terabyte+)
+
+**Deliverables:**
+* Preview system for multiple file types
+* Batch operation tools
+* History and undo system
+* File comparison tools
+
+### 7.5 Phase 5: Security & Performance (FR-23, FR-24)
+**Duration**: 6-8 weeks
+
+**Core Features:**
+* Security and permissions system
+* Performance optimization
+* Memory management
+* Network throttling
+* Audit logging
+
+**Deliverables:**
+* Security implementation
+* Performance monitoring
+* Resource management
+* Audit trail system
+
+### 7.6 Phase 6: User Experience (FR-25)
+**Duration**: 4-6 weeks
+
+**Core Features:**
+* Onboarding system
+* Help and documentation
+* Accessibility features
+* Internationalization
+* User experience polish
+
+**Deliverables:**
+* Complete user onboarding
+* Comprehensive help system
+* Accessibility compliance
+* Multi-language support
+
+### 7.7 Phase 7: Logging & Monitoring (FR-21)
+**Duration**: 4-6 weeks
+
+**Core Features:**
+* Comprehensive logging system
+* Performance metrics
+* Command history
+* Log rotation and management
+* Monitoring dashboard
+
+**Deliverables:**
+* Logging infrastructure
+* Performance monitoring
+* Command history system
+* Monitoring tools
+
+## 8 Risk Assessment and Mitigation
+
+### 8.1 Technical Risks
+
+**High Risk:**
+* **Plugin Security**: Process isolation complexity
+  - *Mitigation*: Use proven IPC libraries, extensive security testing
+* **Large File Handling**: Memory and performance issues
+  - *Mitigation*: Streaming architecture, chunked operations
+* **Cross-Platform TUI**: Terminal compatibility issues
+  - *Mitigation*: Use mature TUI libraries, extensive testing
+
+**Medium Risk:**
+* **Provider Integration**: Complex authentication and APIs
+  - *Mitigation*: Use official SDKs, comprehensive error handling
+* **Performance**: Concurrent operations and resource management
+  - *Mitigation*: Configurable limits, monitoring, optimization
+
+**Low Risk:**
+* **UI/UX**: User interface complexity
+  - *Mitigation*: Iterative design, user testing
+* **Configuration**: Complex configuration management
+  - *Mitigation*: Simple JSON format, migration tools
+
+### 8.2 Project Risks
+
+**High Risk:**
+* **Scope Creep**: Feature additions during development
+  - *Mitigation*: Strict phase boundaries, change control process
+* **Resource Constraints**: Development team capacity
+  - *Mitigation*: Realistic timelines, priority management
+
+**Medium Risk:**
+* **Technology Dependencies**: Third-party library issues
+  - *Mitigation*: Dependency management, fallback options
+* **Testing Complexity**: Comprehensive testing across platforms
+  - *Mitigation*: Automated testing, CI/CD pipeline
+
+## 9 Success Criteria
+
+### 9.1 Functional Success
+* All functional requirements (FR-1 to FR-25) implemented and tested
+* All acceptance tests passing
+* Performance targets met (terabyte file support, concurrent operations)
+* Security requirements satisfied
+
+### 9.2 Technical Success
+* Code coverage > 80%
+* Zero critical security vulnerabilities
+* Cross-platform compatibility (Windows, macOS, Linux)
+* Plugin system working with all providers
+
+### 9.3 User Experience Success
+* Intuitive user interface
+* Comprehensive help system
+* Accessibility compliance
+* Multi-language support
+* Positive user feedback
+
+### 9.4 Database and Data Warehouse Success
+* All database providers working correctly
+* Data pipelines executing successfully
+* Schema management working across providers
+* Data quality monitoring operational
+* Cross-database operations working
+* Performance targets met for database operations
+* Security requirements satisfied for database access
+
+## 10 Post-MVP Roadmap
+
+### 10.1 Future Enhancements
+* **Vector Search**: AIFS vector search capabilities
+* **Snapshot Management**: Advanced AIFS snapshot features
+* **Cloud Integration**: Additional cloud providers
+* **Enterprise Features**: SSO, LDAP integration
+* **API Development**: REST API for external integrations
+* **Advanced Analytics**: Machine learning integration for data analysis
+* **Real-time Processing**: Streaming data processing capabilities
+* **Data Virtualization**: Virtual data layer across multiple sources
+* **Advanced Governance**: Enhanced data governance and compliance features
+
+### 10.2 Community Features
+* **Plugin Marketplace**: Third-party plugin distribution
+* **Theme System**: Customizable UI themes
+* **Scripting Support**: Automation and scripting capabilities
+* **Collaboration**: Multi-user features and sharing
+* **Database Templates**: Pre-built database schemas and configurations
+* **Pipeline Templates**: Reusable data pipeline templates
+* **Query Library**: Shared query library and best practices
+* **Data Models**: Common data models and schemas
+
+### 10.3 Performance Improvements
+* **Caching System**: Intelligent caching for better performance
+* **Compression**: Data compression for network transfers
+* **Parallel Processing**: Advanced parallel operation support
+* **Machine Learning**: Intelligent operation optimization
+* **Query Optimization**: Advanced query optimization and indexing
+* **Data Partitioning**: Intelligent data partitioning strategies
+* **Connection Pooling**: Advanced connection management
+* **Data Streaming**: Real-time data streaming capabilities
 
