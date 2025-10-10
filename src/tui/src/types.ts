@@ -3,6 +3,7 @@ export interface FileItem {
   isDirectory: boolean;
   size: number;
   mtime: Date;
+  uri: string;
 }
 
 export interface NavigationHistoryEntry {
@@ -14,4 +15,10 @@ export type PaneType = 'left' | 'right';
 
 export interface TuiApplicationOptions {
   // Future configuration options can be added here
+}
+
+export interface ProviderInfo {
+  name: string;
+  scheme: string;
+  displayName: string;
 }
