@@ -1,36 +1,36 @@
-#!/usr/bin/env node
-
 import blessed from 'blessed';
-import os from 'os';
-import path from 'path';
-import fs from 'fs/promises';
-import crypto from 'crypto';
+import * as os from 'os';
+import * as path from 'path';
+import * as fs from 'fs/promises';
+import { FileItem, NavigationHistoryEntry, PaneType, TuiApplicationOptions } from './types.js';
 
-// Simple TUI Application
-class TuiApplication {
-  constructor() {
-    this.screen = null;
-    this.leftPane = null;
-    this.rightPane = null;
-    this.currentPane = 'left';
-    this.leftUri = os.homedir();
-    this.rightUri = os.homedir();
-    this.leftItems = [];
-    this.rightItems = [];
-    this.leftSelected = 0;
-    this.rightSelected = 0;
-    this.navigationHistory = {
-      left: [],
-      right: []
-    };
+export class TuiApplication {
+  private screen: blessed.Widgets.Screen | null = null;
+  private leftPane: blessed.Widgets.ListElement | null = null;
+  private rightPane: blessed.Widgets.ListElement | null = null;
+  private statusBar: blessed.Widgets.BoxElement | null = null;
+  private currentPane: PaneType = 'left';
+  private leftUri: string = os.homedir();
+  private rightUri: string = os.homedir();
+  private leftItems: FileItem[] = [];
+  private rightItems: FileItem[] = [];
+  private leftSelected: number = 0;
+  private rightSelected: number = 0;
+  private navigationHistory: Record<PaneType, NavigationHistoryEntry[]> = {
+    left: [],
+    right: []
+  };
+
+  constructor(_options?: TuiApplicationOptions) {
+    // Future configuration can be handled here
   }
 
-  async start() {
+  async start(): Promise<void> {
     try {
       console.log('Starting AIFS Commander TUI...');
       
       // Check terminal size
-      const { rows, cols } = process.stdout;
+      const { rows, cols } = process.stdout as any;
       if (rows < 20 || cols < 80) {
         console.error('Terminal size too small. Please resize to at least 80x20');
         process.exit(1);
@@ -44,7 +44,7 @@ class TuiApplication {
       await this.loadDirectory('left', this.leftUri);
       await this.loadDirectory('right', this.rightUri);
       
-      this.screen.render();
+      this.screen!.render();
       console.log('TUI started successfully!');
       
     } catch (error) {
@@ -53,14 +53,15 @@ class TuiApplication {
     }
   }
 
-  initializeScreen() {
+  private initializeScreen(): void {
     this.screen = blessed.screen({
       smartCSR: true,
       title: 'AIFS Commander TUI',
       cursor: {
         artificial: true,
         shape: 'block',
-        blink: true
+        blink: true,
+        color: 'white'
       }
     });
 
@@ -73,7 +74,9 @@ class TuiApplication {
     });
   }
 
-  initializeLayout() {
+  private initializeLayout(): void {
+    if (!this.screen) return;
+
     // Create main container
     const mainContainer = blessed.box({
       parent: this.screen,
@@ -159,7 +162,9 @@ class TuiApplication {
     this.setFocus('left');
   }
 
-  setupEventHandlers() {
+  private setupEventHandlers(): void {
+    if (!this.screen || !this.leftPane || !this.rightPane) return;
+
     // Tab key to switch between panes
     this.screen.key(['tab'], () => {
       this.switchPane();
@@ -196,10 +201,12 @@ class TuiApplication {
     });
   }
 
-  async loadDirectory(pane, uri, selectedIndex = 0) {
+  private async loadDirectory(pane: PaneType, uri: string, selectedIndex: number = 0): Promise<void> {
     try {
       const items = await this.listDirectory(uri);
       const paneList = pane === 'left' ? this.leftPane : this.rightPane;
+      
+      if (!paneList) return;
       
       paneList.clearItems();
       
@@ -224,23 +231,23 @@ class TuiApplication {
       if (pane === 'left') {
         this.leftUri = uri;
         this.leftItems = items;
-        this.leftSelected = Math.min(selectedIndex, paneList.items.length - 1);
+        this.leftSelected = Math.min(selectedIndex, (paneList as any).items.length - 1);
         paneList.select(this.leftSelected);
       } else {
         this.rightUri = uri;
         this.rightItems = items;
-        this.rightSelected = Math.min(selectedIndex, paneList.items.length - 1);
+        this.rightSelected = Math.min(selectedIndex, (paneList as any).items.length - 1);
         paneList.select(this.rightSelected);
       }
       
       this.updateStatus();
       
     } catch (error) {
-      this.showError(`Failed to load directory: ${error.message}`);
+      this.showError(`Failed to load directory: ${(error as Error).message}`);
     }
   }
 
-  async listDirectory(uri) {
+  private async listDirectory(uri: string): Promise<FileItem[]> {
     try {
       const stats = await fs.stat(uri);
       if (!stats.isDirectory()) {
@@ -248,7 +255,7 @@ class TuiApplication {
       }
       
       const entries = await fs.readdir(uri, { withFileTypes: true });
-      const items = [];
+      const items: FileItem[] = [];
       
       for (const entry of entries) {
         try {
@@ -276,11 +283,11 @@ class TuiApplication {
       
       return items;
     } catch (error) {
-      throw new Error(`Cannot read directory: ${error.message}`);
+      throw new Error(`Cannot read directory: ${(error as Error).message}`);
     }
   }
 
-  async handleSelection(pane, item, index) {
+  private async handleSelection(pane: PaneType, _item: any, index: number): Promise<void> {
     const items = pane === 'left' ? this.leftItems : this.rightItems;
     const uri = pane === 'left' ? this.leftUri : this.rightUri;
     
@@ -314,9 +321,11 @@ class TuiApplication {
     }
   }
 
-  handleKeyPress(pane, ch, key) {
+  private handleKeyPress(pane: PaneType, _ch: string, key: any): void {
     const paneList = pane === 'left' ? this.leftPane : this.rightPane;
     const currentSelected = pane === 'left' ? this.leftSelected : this.rightSelected;
+    
+    if (!paneList) return;
     
     switch (key.name) {
       case 'enter':
@@ -338,7 +347,7 @@ class TuiApplication {
         }
         break;
       case 'down':
-        const maxIndex = paneList.items.length - 1;
+        const maxIndex = (paneList as any).items.length - 1;
         if (currentSelected < maxIndex) {
           const newIndex = currentSelected + 1;
           paneList.select(newIndex);
@@ -353,14 +362,14 @@ class TuiApplication {
     }
   }
 
-  async goToParent(pane) {
+  private async goToParent(pane: PaneType): Promise<void> {
     const uri = pane === 'left' ? this.leftUri : this.rightUri;
     const parentUri = path.dirname(uri);
     
     if (parentUri !== uri) {
       // Check if we have navigation history for this pane
       if (this.navigationHistory[pane].length > 0) {
-        const historyEntry = this.navigationHistory[pane].pop();
+        const historyEntry = this.navigationHistory[pane].pop()!;
         await this.loadDirectory(pane, historyEntry.uri, historyEntry.selectedIndex);
       } else {
         // No history, just go to parent directory
@@ -369,12 +378,14 @@ class TuiApplication {
     }
   }
 
-  switchPane() {
+  private switchPane(): void {
     this.currentPane = this.currentPane === 'left' ? 'right' : 'left';
     this.setFocus(this.currentPane);
   }
 
-  setFocus(pane) {
+  private setFocus(pane: PaneType): void {
+    if (!this.leftPane || !this.rightPane) return;
+    
     if (pane === 'left') {
       this.leftPane.focus();
       this.leftPane.style.border.fg = 'blue';
@@ -385,10 +396,12 @@ class TuiApplication {
       this.leftPane.style.border.fg = 'green';
     }
     this.currentPane = pane;
-    this.screen.render();
+    this.screen!.render();
   }
 
-  updateStatus() {
+  private updateStatus(): void {
+    if (!this.statusBar) return;
+    
     const leftInfo = `Left: ${this.leftUri}`;
     const rightInfo = `Right: ${this.rightUri}`;
     
@@ -416,21 +429,25 @@ class TuiApplication {
     }
     
     this.statusBar.content = `${leftInfo} | ${rightInfo} | ${selectionInfo} | Press F1 for help, F10 to quit`;
-    this.screen.render();
+    this.screen!.render();
   }
 
-  showError(message) {
+  private showError(message: string): void {
+    if (!this.statusBar) return;
+    
     this.statusBar.content = `ERROR: ${message}`;
     this.statusBar.style.fg = 'red';
-    this.screen.render();
+    this.screen!.render();
     
     setTimeout(() => {
-      this.statusBar.style.fg = 'white';
+      this.statusBar!.style.fg = 'white';
       this.updateStatus();
     }, 3000);
   }
 
-  showHelp() {
+  private showHelp(): void {
+    if (!this.screen) return;
+    
     const helpBox = blessed.box({
       parent: this.screen,
       top: 'center',
@@ -474,17 +491,19 @@ Press any key to close this help.
 
     helpBox.key(['escape', 'q', 'enter', 'space'], () => {
       helpBox.detach();
-      this.screen.render();
+      this.screen!.render();
     });
 
     helpBox.focus();
     this.screen.render();
   }
 
-  handleResize() {
-    const { width, height } = this.screen;
+  private handleResize(): void {
+    if (!this.statusBar) return;
     
-    if (width < 80 || height < 20) {
+    const { width, height } = this.screen!;
+    
+    if ((width as number) < 80 || (height as number) < 20) {
       this.statusBar.content = 'Terminal too small. Please resize to at least 80x20';
       this.statusBar.style.bg = 'red';
     } else {
@@ -493,12 +512,12 @@ Press any key to close this help.
     }
   }
 
-  quit() {
+  private quit(): void {
     console.log('Shutting down TUI application');
     process.exit(0);
   }
 
-  formatFileSize(bytes) {
+  private formatFileSize(bytes: number): string {
     if (bytes === 0) return '0 B';
     const k = 1024;
     const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
@@ -506,16 +525,3 @@ Press any key to close this help.
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   }
 }
-
-// Check if running in terminal
-if (!process.stdout.isTTY) {
-  console.error('AIFS Commander TUI requires a terminal environment');
-  process.exit(1);
-}
-
-// Initialize and start TUI application
-const app = new TuiApplication();
-app.start().catch((error) => {
-  console.error('Failed to start TUI application:', error);
-  process.exit(1);
-});

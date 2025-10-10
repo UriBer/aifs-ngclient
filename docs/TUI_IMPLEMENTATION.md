@@ -12,20 +12,14 @@ The TUI is built with a modular architecture:
 
 ```
 src/tui/
-├── index.js                 # Main entry point
 ├── src/
+│   ├── index.ts             # Main entry point (TypeScript)
 │   ├── TuiApplication.ts    # Main application controller
-│   ├── TuiLayout.ts         # Layout management
-│   ├── TuiFileBrowser.ts    # File browser component
-│   ├── TuiJobManager.ts     # Job management
-│   ├── TuiConfig.ts         # Configuration management
-│   └── TuiLogger.ts         # Logging system
+│   └── types.ts             # Type definitions
+├── dist/                    # Compiled JavaScript output
 ├── package.json             # Dependencies and scripts
 ├── tsconfig.json           # TypeScript configuration
-├── setup.sh                # Installation script
-├── README.md               # User documentation
-├── INSTALL.md              # Installation guide
-└── IMPLEMENTATION.md       # This file
+└── setup.sh                # Installation script
 ```
 
 ### Key Features Implemented

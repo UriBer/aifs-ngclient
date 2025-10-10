@@ -32,7 +32,12 @@ Terminal User Interface for AIFS Commander - A cross-platform file manager with 
    ./setup.sh
    ```
 
-3. Start the application:
+3. Build the TypeScript code:
+   ```bash
+   npm run build
+   ```
+
+4. Start the application:
    ```bash
    npm start
    ```
@@ -110,6 +115,20 @@ Logs are written to `~/.aifs-commander/tui.log` with automatic rotation.
 
 ## Development
 
+### Project Structure
+
+```
+src/tui/
+├── src/                 # TypeScript source files
+│   ├── index.ts         # Main application entry point
+│   ├── TuiApplication.ts # Main application class
+│   └── types.ts         # Type definitions
+├── dist/                # Compiled JavaScript output
+├── package.json         # Dependencies and scripts
+├── tsconfig.json        # TypeScript configuration
+└── setup.sh            # Setup script
+```
+
 ### Building
 
 ```bash
@@ -130,14 +149,11 @@ npm test
 
 ## Architecture
 
-The TUI is built with the following components:
+The TUI is built with TypeScript and includes:
 
-- **TuiApplication** - Main application controller
-- **TuiLayout** - Layout management and pane organization
-- **TuiFileBrowser** - File browser component for each pane
-- **TuiJobManager** - Job monitoring and management
-- **TuiConfig** - Configuration management with encryption
-- **TuiLogger** - Logging system with rotation
+- **TuiApplication** - Main application controller with full type safety
+- **types.ts** - TypeScript interfaces and type definitions
+- **blessed** - Terminal UI library for cross-platform support
 
 ## Supported Providers
 

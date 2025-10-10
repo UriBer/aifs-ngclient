@@ -8,9 +8,9 @@ cd src/tui
 npm install
 ```
 
-### 2. Test Installation
+### 2. Build TypeScript
 ```bash
-npm run test-simple
+npm run build
 ```
 
 ### 3. Start the TUI
@@ -23,8 +23,8 @@ npm start
 | Command | Description |
 |---------|-------------|
 | `npm start` | Start the TUI application |
-| `npm run test-simple` | Test basic functionality |
-| `npm run demo-simple` | Run interactive demo |
+| `npm run build` | Build TypeScript to JavaScript |
+| `npm run dev` | Development mode with watch |
 | `npm run setup` | Full setup with configuration |
 
 ## 🎮 Controls
