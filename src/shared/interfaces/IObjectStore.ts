@@ -5,9 +5,9 @@
  */
 export interface IObjectStore {
   /**
-   * Returns the URI scheme for this provider (file, s3, gcs, az, aifs).
+   * Returns the URI scheme for this provider.
    */
-  scheme(): 'file' | 's3' | 'gcs' | 'az' | 'aifs';
+  scheme(): 'file' | 's3' | 'gcs' | 'az' | 'aifs' | 'bigquery' | 'redshift' | 'synapse' | 'autonomous' | 'snowflake' | 'databricks' | 'dataform' | 'dbt' | 'composer' | 'datafactory' | 'dataflow' | 'prefect' | 'dagster' | 'databricks-workflows';
 
   /**
    * Lists objects and pseudo-directories at the specified URI.

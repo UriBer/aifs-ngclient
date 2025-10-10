@@ -5,15 +5,22 @@ import os from 'os';
 import fs from 'fs';
 import { FileProvider } from './providers/FileProvider';
 import { S3Provider } from './providers/S3Provider';
-// import { AifsProvider } from './providers/AifsProvider';
+import { GCSProvider } from './providers/GCSProvider';
+import { AzureProvider } from './providers/AzureProvider';
+import { AifsProvider } from './providers/AifsProvider';
 import { JobEngine } from './jobs/JobEngine';
 import { IObjectStore } from '../shared/interfaces/IObjectStore';
 
 // Initialize providers
 const providers: Record<string, IObjectStore> = {
   file: new FileProvider(),
-  s3: new S3Provider()
-  // aifs: new AifsProvider({ endpoint: process.env.AIFS_ENDPOINT || 'http://localhost:8080' })
+  s3: new S3Provider(),
+  gcs: new GCSProvider(),
+  az: new AzureProvider(),
+  aifs: new AifsProvider({ 
+    endpoint: process.env.AIFS_ENDPOINT || 'localhost:50052',
+    token: process.env.AIFS_AUTH_TOKEN
+  })
 };
 
 // Keep a global reference of the window object to prevent garbage collection

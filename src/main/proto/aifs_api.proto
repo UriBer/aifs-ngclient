@@ -1,0 +1,343 @@
+syntax = "proto3";
+
+package aifs.v1;
+
+// Health service for server health checks
+service Health {
+  rpc Check(CheckRequest) returns (CheckResponse);
+}
+
+message CheckRequest {}
+message CheckResponse {
+  string status = 1;
+}
+
+// Main AIFS service
+service AIFS {
+  // Asset Management
+  rpc PutAsset(stream PutAssetRequest) returns (PutAssetResponse);
+  rpc GetAsset(GetAssetRequest) returns (GetAssetResponse);
+  rpc ListAssets(ListAssetsRequest) returns (ListAssetsResponse);
+  rpc DeleteAsset(DeleteAssetRequest) returns (DeleteAssetResponse);
+  rpc VerifyAsset(VerifyAssetRequest) returns (VerifyAssetResponse);
+  
+  // Snapshot Management
+  rpc CreateSnapshot(CreateSnapshotRequest) returns (CreateSnapshotResponse);
+  rpc GetSnapshot(GetSnapshotRequest) returns (GetSnapshotResponse);
+  rpc ListSnapshots(ListSnapshotsRequest) returns (ListSnapshotsResponse);
+  rpc DeleteSnapshot(DeleteSnapshotRequest) returns (DeleteSnapshotResponse);
+  rpc VerifySnapshot(VerifySnapshotRequest) returns (VerifySnapshotResponse);
+  
+  // Branch Management
+  rpc CreateBranch(CreateBranchRequest) returns (CreateBranchResponse);
+  rpc GetBranch(GetBranchRequest) returns (GetBranchResponse);
+  rpc ListBranches(ListBranchesRequest) returns (ListBranchesResponse);
+  rpc GetBranchHistory(GetBranchHistoryRequest) returns (GetBranchHistoryResponse);
+  rpc DeleteBranch(DeleteBranchRequest) returns (DeleteBranchResponse);
+  
+  // Tag Management
+  rpc CreateTag(CreateTagRequest) returns (CreateTagResponse);
+  rpc GetTag(GetTagRequest) returns (GetTagResponse);
+  rpc ListTags(ListTagsRequest) returns (ListTagsResponse);
+  rpc DeleteTag(DeleteTagRequest) returns (DeleteTagResponse);
+  
+  // Namespace Management
+  rpc GetNamespace(GetNamespaceRequest) returns (GetNamespaceResponse);
+  rpc ListNamespaces(ListNamespacesRequest) returns (ListNamespacesResponse);
+  
+  // Vector Search
+  rpc VectorSearch(VectorSearchRequest) returns (VectorSearchResponse);
+  
+  // Event Subscription
+  rpc SubscribeEvents(SubscribeEventsRequest) returns (stream Event);
+}
+
+// Asset Management Messages
+message PutAssetRequest {
+  oneof data {
+    PutAssetMetadata metadata = 1;
+    bytes chunk = 2;
+  }
+}
+
+message PutAssetMetadata {
+  Asset asset = 1;
+  string data = 2; // Base64 encoded data
+}
+
+message PutAssetResponse {
+  Asset asset = 1;
+}
+
+message GetAssetRequest {
+  string uri = 1;
+}
+
+message GetAssetResponse {
+  Asset asset = 1;
+  bytes data = 2;
+}
+
+message ListAssetsRequest {
+  string namespace = 1;
+  int32 limit = 2;
+  int32 offset = 3;
+  string prefix = 4;
+}
+
+message ListAssetsResponse {
+  repeated Asset assets = 1;
+  int32 total_count = 2;
+}
+
+message DeleteAssetRequest {
+  string uri = 1;
+}
+
+message DeleteAssetResponse {
+  bool success = 1;
+}
+
+message VerifyAssetRequest {
+  string uri = 1;
+}
+
+message VerifyAssetResponse {
+  bool valid = 1;
+  string checksum = 2;
+}
+
+// Snapshot Management Messages
+message CreateSnapshotRequest {
+  string namespace = 1;
+  string description = 2;
+  map<string, string> metadata = 3;
+}
+
+message CreateSnapshotResponse {
+  Snapshot snapshot = 1;
+}
+
+message GetSnapshotRequest {
+  string snapshot_id = 1;
+}
+
+message GetSnapshotResponse {
+  Snapshot snapshot = 1;
+}
+
+message ListSnapshotsRequest {
+  string namespace = 1;
+  int32 limit = 2;
+  int32 offset = 3;
+}
+
+message ListSnapshotsResponse {
+  repeated Snapshot snapshots = 1;
+  int32 total_count = 2;
+}
+
+message DeleteSnapshotRequest {
+  string snapshot_id = 1;
+}
+
+message DeleteSnapshotResponse {
+  bool success = 1;
+}
+
+message VerifySnapshotRequest {
+  string snapshot_id = 1;
+}
+
+message VerifySnapshotResponse {
+  bool valid = 1;
+}
+
+// Branch Management Messages
+message CreateBranchRequest {
+  string branch_name = 1;
+  string namespace = 2;
+  string snapshot_id = 3;
+  map<string, string> metadata = 4;
+}
+
+message CreateBranchResponse {
+  Branch branch = 1;
+}
+
+message GetBranchRequest {
+  string branch_name = 1;
+  string namespace = 2;
+}
+
+message GetBranchResponse {
+  Branch branch = 1;
+}
+
+message ListBranchesRequest {
+  string namespace = 1;
+}
+
+message ListBranchesResponse {
+  repeated Branch branches = 1;
+}
+
+message GetBranchHistoryRequest {
+  string branch_name = 1;
+  string namespace = 2;
+}
+
+message GetBranchHistoryResponse {
+  repeated BranchHistoryEntry history = 1;
+}
+
+message DeleteBranchRequest {
+  string branch_name = 1;
+  string namespace = 2;
+}
+
+message DeleteBranchResponse {
+  bool success = 1;
+}
+
+// Tag Management Messages
+message CreateTagRequest {
+  string tag_name = 1;
+  string namespace = 2;
+  string snapshot_id = 3;
+  map<string, string> metadata = 4;
+}
+
+message CreateTagResponse {
+  Tag tag = 1;
+}
+
+message GetTagRequest {
+  string tag_name = 1;
+  string namespace = 2;
+}
+
+message GetTagResponse {
+  Tag tag = 1;
+}
+
+message ListTagsRequest {
+  string namespace = 1;
+}
+
+message ListTagsResponse {
+  repeated Tag tags = 1;
+}
+
+message DeleteTagRequest {
+  string tag_name = 1;
+  string namespace = 2;
+}
+
+message DeleteTagResponse {
+  bool success = 1;
+}
+
+// Namespace Management Messages
+message GetNamespaceRequest {
+  string namespace = 1;
+}
+
+message GetNamespaceResponse {
+  Namespace namespace = 1;
+}
+
+message ListNamespacesRequest {}
+
+message ListNamespacesResponse {
+  repeated Namespace namespaces = 1;
+}
+
+// Vector Search Messages
+message VectorSearchRequest {
+  string namespace = 1;
+  repeated float query_vector = 2;
+  int32 limit = 3;
+  float threshold = 4;
+}
+
+message VectorSearchResponse {
+  repeated Asset assets = 1;
+  repeated float scores = 2;
+}
+
+// Event Subscription Messages
+message SubscribeEventsRequest {
+  string namespace = 1;
+  repeated string event_types = 2;
+}
+
+message Event {
+  string type = 1;
+  string namespace = 2;
+  string asset_uri = 3;
+  map<string, string> metadata = 4;
+  int64 timestamp = 5;
+}
+
+// Data Models
+message Asset {
+  string uri = 1;
+  string namespace = 2;
+  string name = 3;
+  AssetKind kind = 4;
+  int64 size = 5;
+  string created_at = 6;
+  string updated_at = 7;
+  string blake3 = 8;
+  map<string, string> metadata = 9;
+  repeated string parents = 10;
+  repeated string children = 11;
+}
+
+message Snapshot {
+  string id = 1;
+  string namespace = 2;
+  string description = 3;
+  string created_at = 4;
+  map<string, string> metadata = 5;
+  repeated string asset_uris = 6;
+}
+
+message Branch {
+  string name = 1;
+  string namespace = 2;
+  string snapshot_id = 3;
+  string created_at = 4;
+  string updated_at = 5;
+  map<string, string> metadata = 6;
+}
+
+message BranchHistoryEntry {
+  string snapshot_id = 1;
+  string created_at = 2;
+  string description = 3;
+  map<string, string> metadata = 4;
+}
+
+message Tag {
+  string name = 1;
+  string namespace = 2;
+  string snapshot_id = 3;
+  string created_at = 4;
+  map<string, string> metadata = 5;
+}
+
+message Namespace {
+  string name = 1;
+  string created_at = 2;
+  map<string, string> metadata = 3;
+}
+
+// Enums
+enum AssetKind {
+  BLOB = 0;
+  TENSOR = 1;
+  EMBED = 2;
+  ARTIFACT = 3;
+}

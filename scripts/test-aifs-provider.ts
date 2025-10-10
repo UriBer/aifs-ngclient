@@ -1,132 +1,173 @@
+#!/usr/bin/env node
+
 /**
- * Test script for the AIFS provider
+ * Test script for AifsProvider
  * 
- * This script demonstrates the basic functionality of the AIFS provider.
+ * This script tests the basic functionality of the AifsProvider
+ * against a running AIFS server.
  * 
  * Usage:
- * npm run ts-node scripts/test-aifs-provider.ts
+ *   npm run test:aifs
+ * 
+ * Environment variables:
+ *   AIFS_ENDPOINT - AIFS server endpoint (default: localhost:50052)
+ *   AIFS_AUTH_TOKEN - Optional authentication token
  */
 
-const { AifsProvider } = require('../src/main/providers/AifsProvider');
-const path = require('path');
-const fs = require('fs');
-const os = require('os');
+import { AifsProvider } from '../src/main/providers/AifsProvider';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
 
-// Configuration
-const AIFS_ENDPOINT = process.env.AIFS_API_ENDPOINT || 'http://localhost:50051';
-const AIFS_API_KEY = process.env.AIFS_API_KEY || 'your-api-key';
-const TEST_NAMESPACE = 'test-namespace';
-const TEST_FILE_CONTENT = 'This is a test file for AIFS.';
-
-// Create a temporary directory and file for testing
-const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aifs-test-'));
-const tempFilePath = path.join(tempDir, 'test-file.txt');
-fs.writeFileSync(tempFilePath, TEST_FILE_CONTENT);
-
-console.log(`Created temporary file at ${tempFilePath}`);
-
-// Initialize the AIFS provider
-const provider = new AifsProvider({ endpoint: AIFS_ENDPOINT, apiKey: AIFS_API_KEY });
-
-async function runTests() {
+async function testAifsProvider() {
+  console.log('🧪 Testing AifsProvider...\n');
+  
+  // Initialize provider
+  const provider = new AifsProvider({
+    endpoint: process.env.AIFS_ENDPOINT || 'localhost:50052',
+    token: process.env.AIFS_AUTH_TOKEN
+  });
+  
+  console.log(`📡 Connected to AIFS server at: ${process.env.AIFS_ENDPOINT || 'localhost:50052'}`);
+  
   try {
-    console.log('Testing AIFS provider...');
-    
-    // Test mkdir
-    console.log('\nCreating test directory...');
-    const dirUri = `aifs://${TEST_NAMESPACE}/test-dir/`;
-    await provider.mkdir(dirUri, true);
-    console.log(`Created directory: ${dirUri}`);
-    
-    // Test write
-    console.log('\nUploading test file...');
-    const fileUri = `aifs://${TEST_NAMESPACE}/test-dir/test-file.txt`;
-    const fileContent = fs.readFileSync(tempFilePath);
-    await provider.write(fileUri, fileContent, {
-      semanticTags: ['test', 'example', 'documentation'],
-      contentType: 'text/plain'
-    });
-    console.log(`Uploaded file: ${fileUri}`);
-    
-    // Test list
-    console.log('\nListing files in directory...');
-    const listResult = await provider.list(`aifs://${TEST_NAMESPACE}/test-dir/`);
-    console.log('Files in directory:');
-    listResult.items.forEach((item: any) => {
-      console.log(`- ${item.name} (${item.size} bytes, isDir: ${item.isDir})`);
-    });
-    
-    // Test stat
-    console.log('\nGetting file metadata...');
-    const fileStat = await provider.stat(fileUri);
-    console.log('File metadata:');
-    console.log(`- Name: ${fileStat.name}`);
-    console.log(`- Size: ${fileStat.size} bytes`);
-    console.log(`- Last modified: ${fileStat.lastModified}`);
-    console.log(`- Checksum: ${fileStat.checksum}`);
-    console.log(`- Semantic tags: ${JSON.stringify(fileStat.semanticTags)}`);
-    
-    // Test semantic search
-    console.log('\nPerforming semantic search...');
-    const searchResult = await provider.list(`aifs://${TEST_NAMESPACE}/`, {
-      semanticQuery: 'example documentation'
-    });
-    console.log(`Found ${searchResult.items.length} results for semantic search`);
-    
-    // Test copy
-    console.log('\nCopying file...');
-    const copyUri = `aifs://${TEST_NAMESPACE}/test-dir/test-file-copy.txt`;
-    await provider.copy(fileUri, copyUri);
-    console.log(`Copied file to: ${copyUri}`);
-    
-    // Test read
-    console.log('\nDownloading file...');
-    const downloadPath = path.join(tempDir, 'downloaded-file.txt');
-    const downloadedBuffer = await provider.read(copyUri);
-    fs.writeFileSync(downloadPath, downloadedBuffer);
-    console.log(`Downloaded file to: ${downloadPath}`);
-    const downloadedContent = fs.readFileSync(downloadPath, 'utf8');
-    console.log(`Downloaded content: ${downloadedContent}`);
-    console.log(`Content matches original: ${downloadedContent === TEST_FILE_CONTENT}`);
-    
-    // Test move
-    console.log('\nMoving file...');
-    const moveUri = `aifs://${TEST_NAMESPACE}/test-dir/test-file-moved.txt`;
-    await provider.move(copyUri, moveUri);
-    console.log(`Moved file to: ${moveUri}`);
-    
-    // Test exists
-    console.log('\nChecking if files exist...');
-    const originalExists = await provider.exists(fileUri);
-    const movedExists = await provider.exists(moveUri);
-    const copyExists = await provider.exists(copyUri);
-    console.log(`Original file exists: ${originalExists}`);
-    console.log(`Moved file exists: ${movedExists}`);
-    console.log(`Copy file exists (should be false): ${copyExists}`);
-    
-    // Test delete
-    console.log('\nDeleting files...');
-    await provider.delete(fileUri);
-    await provider.delete(moveUri);
-    console.log('Files deleted');
-    
-    // Test recursive delete
-    console.log('\nDeleting directory recursively...');
-    await provider.delete(dirUri, true);
-    console.log(`Directory deleted: ${dirUri}`);
-    
-    console.log('\nAll tests completed successfully!');
-  } catch (error) {
-    console.error('Error during tests:', error);
-  } finally {
-    // Clean up temporary files
+    // Test 1: List namespaces
+    console.log('\n1️⃣ Testing namespace listing...');
     try {
-      fs.rmSync(tempDir, { recursive: true, force: true });
-      console.log(`\nCleaned up temporary directory: ${tempDir}`);
-    } catch (cleanupError) {
-      console.error('Error cleaning up:', cleanupError);
+      const result = await provider.list('aifs://');
+      console.log(`✅ Found ${result.items.length} namespaces`);
+      result.items.forEach(item => {
+        console.log(`   📁 ${item.name}`);
+      });
+    } catch (error) {
+      console.log(`❌ Failed to list namespaces: ${error instanceof Error ? error.message : String(error)}`);
     }
+    
+    // Test 2: List branches in default namespace
+    console.log('\n2️⃣ Testing branch listing...');
+    try {
+      const result = await provider.list('aifs://default');
+      console.log(`✅ Found ${result.items.length} branches in default namespace`);
+      result.items.forEach(item => {
+        console.log(`   🌿 ${item.name}`);
+      });
+    } catch (error) {
+      console.log(`❌ Failed to list branches: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    
+    // Test 3: Create a test file
+    console.log('\n3️⃣ Testing file upload...');
+    const testContent = `Hello from AIFS Provider Test!
+Timestamp: ${new Date().toISOString()}
+Random data: ${Math.random().toString(36).substring(7)}`;
+    
+    const tempFile = path.join(os.tmpdir(), `aifs-test-${Date.now()}.txt`);
+    const testUri = 'aifs://default/main/test-file.txt';
+    
+    try {
+      // Write test content to temp file
+      await fs.promises.writeFile(tempFile, testContent);
+      console.log(`📝 Created test file: ${tempFile}`);
+      
+      // Upload to AIFS
+      const uploadedObj = await provider.put(tempFile, testUri, {
+        contentType: 'text/plain',
+        metadata: {
+          test: 'true',
+          created_by: 'aifs-provider-test'
+        }
+      });
+      
+      console.log(`✅ Uploaded file to: ${uploadedObj.uri}`);
+      console.log(`   Size: ${uploadedObj.size} bytes`);
+      console.log(`   Checksum: ${uploadedObj.checksum}`);
+      
+      // Clean up temp file
+      await fs.promises.unlink(tempFile);
+      
+    } catch (error) {
+      console.log(`❌ Failed to upload file: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    
+    // Test 4: List assets in main branch
+    console.log('\n4️⃣ Testing asset listing...');
+    try {
+      const result = await provider.list('aifs://default/main');
+      console.log(`✅ Found ${result.items.length} assets in main branch`);
+      result.items.forEach(item => {
+        console.log(`   📄 ${item.name} (${item.size} bytes)`);
+      });
+    } catch (error) {
+      console.log(`❌ Failed to list assets: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    
+    // Test 5: Download the test file
+    console.log('\n5️⃣ Testing file download...');
+    try {
+      const downloadPath = path.join(os.tmpdir(), `aifs-download-${Date.now()}.txt`);
+      await provider.get(testUri, downloadPath);
+      
+      const downloadedContent = await fs.promises.readFile(downloadPath, 'utf8');
+      console.log(`✅ Downloaded file to: ${downloadPath}`);
+      console.log(`   Content matches: ${downloadedContent === testContent ? 'Yes' : 'No'}`);
+      
+      // Clean up downloaded file
+      await fs.promises.unlink(downloadPath);
+      
+    } catch (error) {
+      console.log(`❌ Failed to download file: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    
+    // Test 6: Get file metadata
+    console.log('\n6️⃣ Testing file metadata...');
+    try {
+      const metadata = await provider.stat(testUri);
+      console.log(`✅ Retrieved metadata for: ${metadata.name}`);
+      console.log(`   Size: ${metadata.size} bytes`);
+      console.log(`   Last modified: ${metadata.lastModified}`);
+      console.log(`   Checksum: ${metadata.checksum}`);
+    } catch (error) {
+      console.log(`❌ Failed to get metadata: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    
+    // Test 7: Check if file exists
+    console.log('\n7️⃣ Testing file existence check...');
+    try {
+      const exists = await provider.exists(testUri);
+      console.log(`✅ File exists: ${exists ? 'Yes' : 'No'}`);
+    } catch (error) {
+      console.log(`❌ Failed to check existence: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    
+    // Test 8: Delete the test file
+    console.log('\n8️⃣ Testing file deletion...');
+    try {
+      await provider.delete(testUri);
+      console.log(`✅ Deleted file: ${testUri}`);
+    } catch (error) {
+      console.log(`❌ Failed to delete file: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    
+    // Test 9: Verify file is deleted
+    console.log('\n9️⃣ Testing file deletion verification...');
+    try {
+      const exists = await provider.exists(testUri);
+      console.log(`✅ File still exists after deletion: ${exists ? 'Yes' : 'No'}`);
+    } catch (error) {
+      console.log(`❌ Failed to check existence after deletion: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    
+    console.log('\n🎉 AifsProvider test completed!');
+    
+  } catch (error) {
+    console.error(`💥 Test failed with error: ${error instanceof Error ? error.message : String(error)}`);
+    process.exit(1);
   }
 }
 
-runTests();
+// Run the test
+if (require.main === module) {
+  testAifsProvider().catch(console.error);
+}
+
+export { testAifsProvider };

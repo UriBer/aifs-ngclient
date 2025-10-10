@@ -1,11 +1,26 @@
+#!/usr/bin/env node
+
+/**
+ * Mock AIFS Server for Testing
+ * 
+ * This script provides a minimal mock implementation of the AIFS gRPC server
+ * for testing the AifsProvider without requiring a real AIFS server.
+ * 
+ * Usage:
+ *   npm run mock:aifs
+ * 
+ * The server will start on localhost:50052 and provide basic functionality
+ * for testing the AifsProvider.
+ */
+
 const grpc = require('@grpc/grpc-js');
 const protoLoader = require('@grpc/proto-loader');
 const path = require('path');
 const fs = require('fs');
 
 // Load the proto file
-const PROTO_PATH = path.resolve(__dirname, '../src/main/proto/aifs.proto');
-const packageDefinition = protoLoader.loadSync(PROTO_PATH, {
+const protoPath = path.resolve(__dirname, '../src/main/proto/aifs_api.proto');
+const packageDefinition = protoLoader.loadSync(protoPath, {
   keepCase: true,
   longs: String,
   enums: String,
@@ -14,523 +29,308 @@ const packageDefinition = protoLoader.loadSync(PROTO_PATH, {
 });
 
 const protoDescriptor = grpc.loadPackageDefinition(packageDefinition);
-const aifsService = protoDescriptor.aifs.AifsService;
+const aifsPackage = protoDescriptor.aifs.v1;
 
-// In-memory storage for objects and directories
-const storage = {
-  namespaces: {}
+// Mock data storage
+const mockData = {
+  namespaces: new Map(),
+  assets: new Map(),
+  branches: new Map(),
+  snapshots: new Map()
 };
 
-// Helper functions
-function ensureNamespace(namespace) {
-  if (!storage.namespaces[namespace]) {
-    storage.namespaces[namespace] = {
-      objects: {},
-      directories: {}
-    };
+// Initialize with default namespace
+mockData.namespaces.set('default', {
+  name: 'default',
+  created_at: new Date().toISOString(),
+  metadata: {}
+});
+
+mockData.branches.set('default/main', {
+  name: 'main',
+  namespace: 'default',
+  snapshot_id: '',
+  created_at: new Date().toISOString(),
+  updated_at: new Date().toISOString(),
+  metadata: {}
+});
+
+// Helper function to generate asset URI
+function generateAssetUri(namespace, branch, assetName) {
+  return `aifs://${namespace}/${branch}/${assetName}`;
+}
+
+// Helper function to parse asset URI
+function parseAssetUri(uri) {
+  const match = uri.match(/^aifs:\/\/([^\/]+)\/([^\/]+)\/(.+)$/);
+  if (!match) {
+    throw new Error('Invalid asset URI format');
   }
-  return storage.namespaces[namespace];
+  return {
+    namespace: match[1],
+    branch: match[2],
+    assetName: match[3]
+  };
 }
 
-function getParentPath(path) {
-  const parts = path.split('/');
-  parts.pop();
-  return parts.join('/');
-}
+// Health service implementation
+const healthService = {
+  Check: (call, callback) => {
+    callback(null, { status: 'SERVING' });
+  }
+};
 
-function getObjectName(path) {
-  const parts = path.split('/');
-  return parts[parts.length - 1];
-}
-
-// Implementation of the service
-const serviceImpl = {
-  // Directory operations
-  createDirectory: (call, callback) => {
-    const { namespace, path, recursive } = call.request;
-    console.log(`Creating directory: ${namespace}/${path}, recursive: ${recursive}`);
+// AIFS service implementation
+const aifsService = {
+  // Asset Management
+  PutAsset: (call, callback) => {
+    let asset = null;
+    let data = null;
     
-    try {
-      const ns = ensureNamespace(namespace);
-      
-      // Check if parent directories exist when not recursive
-      if (!recursive) {
-        const parentPath = getParentPath(path);
-        if (parentPath && !ns.directories[parentPath]) {
-          return callback({
-            code: grpc.status.NOT_FOUND,
-            details: 'Parent directory does not exist'
-          });
-        }
-      }
-      
-      // Create directory
-      ns.directories[path] = {
-        path,
-        created: new Date().toISOString(),
-        modified: new Date().toISOString()
-      };
-      
-      callback(null, {
-        success: true,
-        message: 'Directory created successfully'
-      });
-    } catch (error) {
-      callback({
-        code: grpc.status.INTERNAL,
-        details: error.message
-      });
-    }
-  },
-  
-  // Object operations
-  listObjects: (call, callback) => {
-    const { namespace, path, recursive, page_token, page_size } = call.request;
-    console.log(`Listing objects: ${namespace}/${path}, recursive: ${recursive}`);
-    
-    try {
-      const ns = ensureNamespace(namespace);
-      const results = [];
-      
-      // List directories
-      Object.keys(ns.directories).forEach(dirPath => {
-        if (dirPath.startsWith(path) && (recursive || dirPath.split('/').length === path.split('/').length + 1)) {
-          results.push({
-            path: dirPath,
-            name: getObjectName(dirPath),
-            is_directory: true,
-            size: 0,
-            created: ns.directories[dirPath].created,
-            modified: ns.directories[dirPath].modified,
-            metadata: {}
-          });
-        }
-      });
-      
-      // List objects
-      Object.keys(ns.objects).forEach(objPath => {
-        if (objPath.startsWith(path) && (recursive || objPath.split('/').length === path.split('/').length + 1)) {
-          results.push({
-            path: objPath,
-            name: getObjectName(objPath),
-            is_directory: false,
-            size: ns.objects[objPath].content.length,
-            created: ns.objects[objPath].created,
-            modified: ns.objects[objPath].modified,
-            metadata: ns.objects[objPath].metadata || {}
-          });
-        }
-      });
-      
-      callback(null, {
-        success: true,
-        items: results,
-        next_page_token: ''
-      });
-    } catch (error) {
-      callback({
-        code: grpc.status.INTERNAL,
-        details: error.message
-      });
-    }
-  },
-  
-  getObjectMetadata: (call, callback) => {
-    const { namespace, path } = call.request;
-    console.log(`Getting object metadata: ${namespace}/${path}`);
-    
-    try {
-      const ns = ensureNamespace(namespace);
-      
-      // Check if it's a directory
-      if (ns.directories[path]) {
-        callback(null, {
-          success: true,
-          object: {
-            path,
-            name: getObjectName(path),
-            is_directory: true,
-            size: 0,
-            created: ns.directories[path].created,
-            modified: ns.directories[path].modified,
-            metadata: {}
-          }
-        });
-        return;
-      }
-      
-      // Check if it's an object
-      if (ns.objects[path]) {
-        callback(null, {
-          success: true,
-          object: {
-            path,
-            name: getObjectName(path),
-            is_directory: false,
-            size: ns.objects[path].content.length,
-            created: ns.objects[path].created,
-            modified: ns.objects[path].modified,
-            metadata: ns.objects[path].metadata || {}
-          }
-        });
-        return;
-      }
-      
-      callback({
-        code: grpc.status.NOT_FOUND,
-        details: 'Object not found'
-      });
-    } catch (error) {
-      callback({
-        code: grpc.status.INTERNAL,
-        details: error.message
-      });
-    }
-  },
-  
-  uploadObject: (call) => {
-    let metadata = null;
-    let chunks = [];
-    
-    call.on('data', (data) => {
-      if (data.metadata) {
-        metadata = data.metadata;
-        console.log(`Uploading object: ${metadata.namespace}/${metadata.path}`);
-      } else if (data.chunk) {
-        chunks.push(data.chunk);
+    call.on('data', (request) => {
+      if (request.metadata) {
+        asset = request.metadata.asset;
+        data = Buffer.from(request.metadata.data, 'base64');
+      } else if (request.chunk) {
+        if (!data) data = Buffer.alloc(0);
+        data = Buffer.concat([data, request.chunk]);
       }
     });
     
     call.on('end', () => {
-      try {
-        if (!metadata) {
-          call.emit('error', {
-            code: grpc.status.INVALID_ARGUMENT,
-            details: 'No metadata provided'
-          });
-          return;
-        }
-        
-        const ns = ensureNamespace(metadata.namespace);
-        const content = Buffer.concat(chunks);
-        
-        // Create parent directories if they don't exist
-        const parentPath = getParentPath(metadata.path);
-        if (parentPath && !ns.directories[parentPath]) {
-          ns.directories[parentPath] = {
-            path: parentPath,
-            created: new Date().toISOString(),
-            modified: new Date().toISOString()
-          };
-        }
-        
-        // Store the object
-        ns.objects[metadata.path] = {
-          content,
-          contentType: metadata.content_type,
-          metadata: metadata.metadata,
-          semanticTags: metadata.semantic_tags,
-          embedding: metadata.embedding,
-          created: new Date().toISOString(),
-          modified: new Date().toISOString()
-        };
-        
-        call.write({
-          success: true,
-          object: {
-            path: metadata.path,
-            name: getObjectName(metadata.path),
-            is_directory: false,
-            size: content.length,
-            created: ns.objects[metadata.path].created,
-            modified: ns.objects[metadata.path].modified,
-            metadata: metadata.metadata || {}
-          }
-        });
-        
-        call.end();
-      } catch (error) {
-        call.emit('error', {
-          code: grpc.status.INTERNAL,
-          details: error.message
-        });
+      if (!asset) {
+        callback(new Error('No asset metadata provided'));
+        return;
       }
+      
+      // Store the asset
+      const assetUri = asset.uri;
+      mockData.assets.set(assetUri, {
+        ...asset,
+        data: data,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      });
+      
+      callback(null, { asset });
     });
   },
   
-  downloadObject: (call) => {
-    const { namespace, path } = call.request;
-    console.log(`Downloading object: ${namespace}/${path}`);
+  GetAsset: (call, callback) => {
+    const { uri } = call.request;
+    const asset = mockData.assets.get(uri);
     
-    try {
-      const ns = ensureNamespace(namespace);
-      
-      if (!ns.objects[path]) {
-        call.emit('error', {
-          code: grpc.status.NOT_FOUND,
-          details: 'Object not found'
-        });
-        return;
-      }
-      
-      const object = ns.objects[path];
-      const content = object.content;
-      
-      // Send content in chunks
-      const CHUNK_SIZE = 64 * 1024; // 64KB
-      for (let i = 0; i < content.length; i += CHUNK_SIZE) {
-        const chunk = content.slice(i, i + CHUNK_SIZE);
-        call.write({ chunk });
-      }
-      
-      call.end();
-    } catch (error) {
-      call.emit('error', {
-        code: grpc.status.INTERNAL,
-        details: error.message
-      });
+    if (!asset) {
+      callback(new Error('Asset not found'), null);
+      return;
     }
+    
+    callback(null, {
+      asset: {
+        uri: asset.uri,
+        namespace: asset.namespace,
+        name: asset.name,
+        kind: asset.kind,
+        size: asset.size,
+        created_at: asset.created_at,
+        updated_at: asset.updated_at,
+        blake3: asset.blake3,
+        metadata: asset.metadata
+      },
+      data: asset.data
+    });
   },
   
-  deleteObject: (call, callback) => {
-    const { namespace, path } = call.request;
-    console.log(`Deleting object: ${namespace}/${path}`);
+  ListAssets: (call, callback) => {
+    const { namespace, limit = 1000, offset = 0, prefix = '' } = call.request;
     
-    try {
-      const ns = ensureNamespace(namespace);
-      
-      // Check if it's a directory
-      if (ns.directories[path]) {
-        delete ns.directories[path];
-        callback(null, { success: true });
-        return;
-      }
-      
-      // Check if it's an object
-      if (ns.objects[path]) {
-        delete ns.objects[path];
-        callback(null, { success: true });
-        return;
-      }
-      
-      callback({
-        code: grpc.status.NOT_FOUND,
-        details: 'Object not found'
-      });
-    } catch (error) {
-      callback({
-        code: grpc.status.INTERNAL,
-        details: error.message
-      });
-    }
+    const assets = Array.from(mockData.assets.values())
+      .filter(asset => asset.namespace === namespace)
+      .filter(asset => !prefix || asset.name.startsWith(prefix))
+      .slice(offset, offset + limit);
+    
+    callback(null, {
+      assets: assets.map(asset => ({
+        uri: asset.uri,
+        namespace: asset.namespace,
+        name: asset.name,
+        kind: asset.kind,
+        size: asset.size,
+        created_at: asset.created_at,
+        updated_at: asset.updated_at,
+        blake3: asset.blake3,
+        metadata: asset.metadata
+      })),
+      total_count: assets.length
+    });
   },
   
-  copyObject: (call, callback) => {
-    const { source_namespace, source_path, dest_namespace, dest_path } = call.request;
-    console.log(`Copying object: ${source_namespace}/${source_path} to ${dest_namespace}/${dest_path}`);
+  DeleteAsset: (call, callback) => {
+    const { uri } = call.request;
     
-    try {
-      const sourceNs = ensureNamespace(source_namespace);
-      const destNs = ensureNamespace(dest_namespace);
-      
-      // Check if source exists
-      if (!sourceNs.objects[source_path]) {
-        callback({
-          code: grpc.status.NOT_FOUND,
-          details: 'Source object not found'
-        });
-        return;
-      }
-      
-      // Create parent directories if they don't exist
-      const parentPath = getParentPath(dest_path);
-      if (parentPath && !destNs.directories[parentPath]) {
-        destNs.directories[parentPath] = {
-          path: parentPath,
-          created: new Date().toISOString(),
-          modified: new Date().toISOString()
-        };
-      }
-      
-      // Copy the object
-      const sourceObj = sourceNs.objects[source_path];
-      destNs.objects[dest_path] = {
-        content: Buffer.from(sourceObj.content),
-        contentType: sourceObj.contentType,
-        metadata: { ...sourceObj.metadata },
-        semanticTags: [...sourceObj.semanticTags],
-        embedding: [...sourceObj.embedding],
-        created: new Date().toISOString(),
-        modified: new Date().toISOString()
-      };
-      
-      callback(null, {
-        success: true,
-        object: {
-          path: dest_path,
-          name: getObjectName(dest_path),
-          is_directory: false,
-          size: destNs.objects[dest_path].content.length,
-          created: destNs.objects[dest_path].created,
-          modified: destNs.objects[dest_path].modified,
-          metadata: destNs.objects[dest_path].metadata || {}
-        }
-      });
-    } catch (error) {
-      callback({
-        code: grpc.status.INTERNAL,
-        details: error.message
-      });
+    if (!mockData.assets.has(uri)) {
+      callback(new Error('Asset not found'), null);
+      return;
     }
+    
+    mockData.assets.delete(uri);
+    callback(null, { success: true });
   },
   
-  moveObject: (call, callback) => {
-    const { source_namespace, source_path, dest_namespace, dest_path } = call.request;
-    console.log(`Moving object: ${source_namespace}/${source_path} to ${dest_namespace}/${dest_path}`);
+  VerifyAsset: (call, callback) => {
+    const { uri } = call.request;
+    const asset = mockData.assets.get(uri);
     
-    try {
-      const sourceNs = ensureNamespace(source_namespace);
-      const destNs = ensureNamespace(dest_namespace);
-      
-      // Check if source exists
-      if (!sourceNs.objects[source_path]) {
-        callback({
-          code: grpc.status.NOT_FOUND,
-          details: 'Source object not found'
-        });
-        return;
-      }
-      
-      // Create parent directories if they don't exist
-      const parentPath = getParentPath(dest_path);
-      if (parentPath && !destNs.directories[parentPath]) {
-        destNs.directories[parentPath] = {
-          path: parentPath,
-          created: new Date().toISOString(),
-          modified: new Date().toISOString()
-        };
-      }
-      
-      // Move the object
-      const sourceObj = sourceNs.objects[source_path];
-      destNs.objects[dest_path] = {
-        content: Buffer.from(sourceObj.content),
-        contentType: sourceObj.contentType,
-        metadata: { ...sourceObj.metadata },
-        semanticTags: [...sourceObj.semanticTags],
-        embedding: [...sourceObj.embedding],
-        created: sourceObj.created,
-        modified: new Date().toISOString()
-      };
-      
-      // Delete the source object
-      delete sourceNs.objects[source_path];
-      
-      callback(null, {
-        success: true,
-        object: {
-          path: dest_path,
-          name: getObjectName(dest_path),
-          is_directory: false,
-          size: destNs.objects[dest_path].content.length,
-          created: destNs.objects[dest_path].created,
-          modified: destNs.objects[dest_path].modified,
-          metadata: destNs.objects[dest_path].metadata || {}
-        }
-      });
-    } catch (error) {
-      callback({
-        code: grpc.status.INTERNAL,
-        details: error.message
-      });
+    if (!asset) {
+      callback(new Error('Asset not found'), null);
+      return;
     }
+    
+    callback(null, {
+      valid: true,
+      checksum: asset.blake3
+    });
   },
   
-  objectExists: (call, callback) => {
-    const { namespace, path } = call.request;
-    console.log(`Checking if object exists: ${namespace}/${path}`);
+  // Branch Management
+  CreateBranch: (call, callback) => {
+    const { branch_name, namespace, snapshot_id, metadata = {} } = call.request;
     
-    try {
-      const ns = ensureNamespace(namespace);
-      const exists = ns.objects[path] !== undefined || ns.directories[path] !== undefined;
-      
-      callback(null, { exists });
-    } catch (error) {
-      callback({
-        code: grpc.status.INTERNAL,
-        details: error.message
-      });
+    if (!mockData.namespaces.has(namespace)) {
+      callback(new Error('Namespace not found'), null);
+      return;
     }
+    
+    const branchKey = `${namespace}/${branch_name}`;
+    if (mockData.branches.has(branchKey)) {
+      callback(new Error('Branch already exists'), null);
+      return;
+    }
+    
+    const branch = {
+      name: branch_name,
+      namespace,
+      snapshot_id,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      metadata
+    };
+    
+    mockData.branches.set(branchKey, branch);
+    callback(null, { branch });
   },
   
-  semanticSearch: (call, callback) => {
-    const { namespace, query, limit, embedding } = call.request;
-    console.log(`Semantic search: ${namespace}, query: ${query}`);
+  GetBranch: (call, callback) => {
+    const { branch_name, namespace } = call.request;
+    const branchKey = `${namespace}/${branch_name}`;
+    const branch = mockData.branches.get(branchKey);
     
-    try {
-      const ns = ensureNamespace(namespace);
-      
-      // Mock semantic search by returning some objects
-      const results = Object.keys(ns.objects)
-        .slice(0, limit || 10)
-        .map(path => {
-          const obj = ns.objects[path];
-          return {
-            path,
-            name: getObjectName(path),
-            is_directory: false,
-            size: obj.content.length,
-            created: obj.created,
-            modified: obj.modified,
-            metadata: obj.metadata || {},
-            score: 0.9 // Mock similarity score
-          };
-        });
-      
-      callback(null, {
-        success: true,
-        results
-      });
-    } catch (error) {
-      callback({
-        code: grpc.status.INTERNAL,
-        details: error.message
-      });
+    if (!branch) {
+      callback(new Error('Branch not found'), null);
+      return;
     }
+    
+    callback(null, { branch });
+  },
+  
+  ListBranches: (call, callback) => {
+    const { namespace } = call.request;
+    
+    const branches = Array.from(mockData.branches.values())
+      .filter(branch => branch.namespace === namespace);
+    
+    callback(null, { branches });
+  },
+  
+  GetBranchHistory: (call, callback) => {
+    const { branch_name, namespace } = call.request;
+    const branchKey = `${namespace}/${branch_name}`;
+    const branch = mockData.branches.get(branchKey);
+    
+    if (!branch) {
+      callback(new Error('Branch not found'), null);
+      return;
+    }
+    
+    callback(null, { history: [] });
+  },
+  
+  DeleteBranch: (call, callback) => {
+    const { branch_name, namespace } = call.request;
+    const branchKey = `${namespace}/${branch_name}`;
+    
+    if (!mockData.branches.has(branchKey)) {
+      callback(new Error('Branch not found'), null);
+      return;
+    }
+    
+    mockData.branches.delete(branchKey);
+    callback(null, { success: true });
+  },
+  
+  // Namespace Management
+  GetNamespace: (call, callback) => {
+    const { namespace } = call.request;
+    const ns = mockData.namespaces.get(namespace);
+    
+    if (!ns) {
+      callback(new Error('Namespace not found'), null);
+      return;
+    }
+    
+    callback(null, { namespace: ns });
+  },
+  
+  ListNamespaces: (call, callback) => {
+    const namespaces = Array.from(mockData.namespaces.values());
+    callback(null, { namespaces });
+  },
+  
+  // Vector Search (not implemented)
+  VectorSearch: (call, callback) => {
+    callback(null, { assets: [], scores: [] });
+  },
+  
+  // Event Subscription (not implemented)
+  SubscribeEvents: (call) => {
+    // Not implemented for mock server
   }
 };
 
 // Create and start the server
-function startServer() {
-  const server = new grpc.Server();
-  server.addService(aifsService.service, serviceImpl);
-  
-  const port = 50051;
-  server.bindAsync(`0.0.0.0:${port}`, grpc.ServerCredentials.createInsecure(), (err, port) => {
-    if (err) {
-      console.error('Failed to bind server:', err);
-      return;
-    }
-    
-    console.log(`AIFS mock server running at 0.0.0.0:${port}`);
-    server.start();
-  });
-  
-  return server;
-}
+const server = new grpc.Server();
 
-// Start the server if this script is run directly
-if (require.main === module) {
-  const server = startServer();
-  
-  // Handle graceful shutdown
-  process.on('SIGINT', () => {
-    console.log('Shutting down server...');
-    server.tryShutdown(() => {
-      console.log('Server shut down successfully');
-      process.exit(0);
-    });
-  });
-}
+// Add services
+server.addService(aifsPackage.Health.service, healthService);
+server.addService(aifsPackage.AIFS.service, aifsService);
 
-module.exports = { startServer };
+const port = process.env.AIFS_PORT || '50052';
+const host = process.env.AIFS_HOST || '0.0.0.0';
+
+server.bindAsync(`${host}:${port}`, grpc.ServerCredentials.createInsecure(), (err, port) => {
+  if (err) {
+    console.error('❌ Failed to start mock AIFS server:', err);
+    process.exit(1);
+  }
+  
+  console.log(`🚀 Mock AIFS server started on ${host}:${port}`);
+  console.log(`📡 gRPC endpoint: ${host}:${port}`);
+  console.log(`🏠 Default namespace: default`);
+  console.log(`🌿 Default branch: main`);
+  console.log(`\n💡 Use Ctrl+C to stop the server`);
+  
+  server.start();
+});
+
+// Graceful shutdown
+process.on('SIGINT', () => {
+  console.log('\n🛑 Shutting down mock AIFS server...');
+  server.forceShutdown();
+  process.exit(0);
+});
+
+process.on('SIGTERM', () => {
+  console.log('\n🛑 Shutting down mock AIFS server...');
+  server.forceShutdown();
+  process.exit(0);
+});

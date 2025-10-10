@@ -19,6 +19,10 @@ class TuiApplication {
     this.rightItems = [];
     this.leftSelected = 0;
     this.rightSelected = 0;
+    this.navigationHistory = {
+      left: [],
+      right: []
+    };
   }
 
   async start() {
@@ -192,7 +196,7 @@ class TuiApplication {
     });
   }
 
-  async loadDirectory(pane, uri) {
+  async loadDirectory(pane, uri, selectedIndex = 0) {
     try {
       const items = await this.listDirectory(uri);
       const paneList = pane === 'left' ? this.leftPane : this.rightPane;
@@ -220,9 +224,13 @@ class TuiApplication {
       if (pane === 'left') {
         this.leftUri = uri;
         this.leftItems = items;
+        this.leftSelected = Math.min(selectedIndex, paneList.items.length - 1);
+        paneList.select(this.leftSelected);
       } else {
         this.rightUri = uri;
         this.rightItems = items;
+        this.rightSelected = Math.min(selectedIndex, paneList.items.length - 1);
+        paneList.select(this.rightSelected);
       }
       
       this.updateStatus();
@@ -243,15 +251,20 @@ class TuiApplication {
       const items = [];
       
       for (const entry of entries) {
-        const fullPath = path.join(uri, entry.name);
-        const stats = await fs.stat(fullPath);
-        
-        items.push({
-          name: entry.name,
-          isDirectory: entry.isDirectory(),
-          size: stats.size,
-          mtime: stats.mtime
-        });
+        try {
+          const fullPath = path.join(uri, entry.name);
+          const stats = await fs.stat(fullPath);
+          
+          items.push({
+            name: entry.name,
+            isDirectory: entry.isDirectory(),
+            size: stats.size,
+            mtime: stats.mtime
+          });
+        } catch (statError) {
+          // Skip files we can't access instead of showing them with errors
+          continue;
+        }
       }
       
       // Sort: directories first, then files
@@ -271,24 +284,71 @@ class TuiApplication {
     const items = pane === 'left' ? this.leftItems : this.rightItems;
     const uri = pane === 'left' ? this.leftUri : this.rightUri;
     
-    if (index >= items.length) return;
+    // Check if we're selecting the parent directory entry
+    const hasParentEntry = uri !== '/' && uri !== '';
+    const isParentEntry = hasParentEntry && index === 0;
     
-    const selectedItem = items[index];
+    if (isParentEntry) {
+      // Navigate to parent directory
+      await this.goToParent(pane);
+      return;
+    }
+    
+    // Adjust index if parent entry is present
+    const actualIndex = hasParentEntry ? index - 1 : index;
+    
+    if (actualIndex < 0 || actualIndex >= items.length) return;
+    
+    const selectedItem = items[actualIndex];
     if (selectedItem.isDirectory) {
+      // Save current position in history before entering directory
+      this.navigationHistory[pane].push({
+        uri: uri,
+        selectedIndex: index
+      });
+      
       const newUri = path.join(uri, selectedItem.name);
-      await this.loadDirectory(pane, newUri);
+      await this.loadDirectory(pane, newUri, 0); // Start at top of new directory
     } else {
       this.showError(`File operations not yet implemented: ${selectedItem.name}`);
     }
   }
 
   handleKeyPress(pane, ch, key) {
+    const paneList = pane === 'left' ? this.leftPane : this.rightPane;
+    const currentSelected = pane === 'left' ? this.leftSelected : this.rightSelected;
+    
     switch (key.name) {
       case 'enter':
-        this.handleSelection(pane, null, pane === 'left' ? this.leftSelected : this.rightSelected);
+        this.handleSelection(pane, null, currentSelected);
         break;
       case 'backspace':
         this.goToParent(pane);
+        break;
+      case 'up':
+        if (currentSelected > 0) {
+          const newIndex = currentSelected - 1;
+          paneList.select(newIndex);
+          if (pane === 'left') {
+            this.leftSelected = newIndex;
+          } else {
+            this.rightSelected = newIndex;
+          }
+          this.updateStatus();
+        }
+        break;
+      case 'down':
+        const maxIndex = paneList.items.length - 1;
+        if (currentSelected < maxIndex) {
+          const newIndex = currentSelected + 1;
+          paneList.select(newIndex);
+          if (pane === 'left') {
+            this.leftSelected = newIndex;
+          } else {
+            this.rightSelected = newIndex;
+          }
+          this.updateStatus();
+        }
         break;
     }
   }
@@ -298,7 +358,14 @@ class TuiApplication {
     const parentUri = path.dirname(uri);
     
     if (parentUri !== uri) {
-      await this.loadDirectory(pane, parentUri);
+      // Check if we have navigation history for this pane
+      if (this.navigationHistory[pane].length > 0) {
+        const historyEntry = this.navigationHistory[pane].pop();
+        await this.loadDirectory(pane, historyEntry.uri, historyEntry.selectedIndex);
+      } else {
+        // No history, just go to parent directory
+        await this.loadDirectory(pane, parentUri, 0);
+      }
     }
   }
 
@@ -324,7 +391,31 @@ class TuiApplication {
   updateStatus() {
     const leftInfo = `Left: ${this.leftUri}`;
     const rightInfo = `Right: ${this.rightUri}`;
-    this.statusBar.content = `${leftInfo} | ${rightInfo} | Press F1 for help, F10 to quit`;
+    
+    // Get current selection info
+    const currentPane = this.currentPane;
+    const items = currentPane === 'left' ? this.leftItems : this.rightItems;
+    const selectedIndex = currentPane === 'left' ? this.leftSelected : this.rightSelected;
+    
+    let selectionInfo = '';
+    if (items.length > 0) {
+      const hasParentEntry = (currentPane === 'left' ? this.leftUri : this.rightUri) !== '/' && (currentPane === 'left' ? this.leftUri : this.rightUri) !== '';
+      const isParentEntry = hasParentEntry && selectedIndex === 0;
+      
+      if (isParentEntry) {
+        selectionInfo = 'DIR .. (parent directory)';
+      } else {
+        const actualIndex = hasParentEntry ? selectedIndex - 1 : selectedIndex;
+        if (actualIndex >= 0 && actualIndex < items.length) {
+          const item = items[actualIndex];
+          const size = item.size ? this.formatFileSize(item.size) : '';
+          const type = item.isDirectory ? 'DIR' : 'FILE';
+          selectionInfo = `${type} ${size} ${item.name}`;
+        }
+      }
+    }
+    
+    this.statusBar.content = `${leftInfo} | ${rightInfo} | ${selectionInfo} | Press F1 for help, F10 to quit`;
     this.screen.render();
   }
 
