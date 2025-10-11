@@ -9,7 +9,8 @@ Terminal User Interface for AIFS Commander - A cross-platform file manager with 
 - **Multiple providers** - File system, S3, GCS, Azure, and more
 - **Job management** - Monitor and manage background operations
 - **Keyboard navigation** - Full keyboard support for efficient navigation
-- **Configuration management** - Encrypted configuration storage
+- **Configuration management** - Secure encrypted configuration storage
+- **Provider management** - Easy setup for AWS, GCS, Azure, AIFS
 - **Comprehensive logging** - Detailed logging with rotation
 
 ## Installation
@@ -100,6 +101,54 @@ Configuration is stored in `~/.aifs-commander/tui-config.json` and is encrypted 
   }
 }
 ```
+
+## Configuration
+
+The TUI includes a comprehensive configuration system for managing storage provider credentials and settings.
+
+### Opening Configuration
+
+Press **F9** to open the configuration panel.
+
+### Supported Providers
+
+- **Local File System** - Always available
+- **Amazon S3** - Requires AWS credentials
+- **Google Cloud Storage** - Requires GCS credentials  
+- **Azure Blob Storage** - Requires Azure credentials
+- **AIFS** - Requires AIFS endpoint and token
+
+### Configuration Actions
+
+- **E** - Enable/Disable provider
+- **C** - Configure credentials
+- **S** - Configure settings
+- **T** - Test connection
+- **D** - Delete configuration
+- **ESC** - Close configuration panel
+
+### Security Features
+
+- **AES-256-CBC Encryption** - All configuration data is encrypted
+- **Secure Key Management** - Encryption keys stored with restricted permissions
+- **Credential Masking** - Sensitive data is masked in the interface
+- **Configuration Validation** - Credentials are validated before enabling providers
+- **Encrypted Storage** - Configuration stored in `~/.aifs-commander/config.enc`
+
+### Provider Setup
+
+1. Press **F9** to open configuration
+2. Select a provider using arrow keys
+3. Press **C** to configure credentials
+4. Enter required information (keys, endpoints, etc.)
+5. Press **E** to enable the provider
+6. Press **ESC** to close and save
+
+### Configuration Files
+
+- **Config**: `~/.aifs-commander/config.enc` (encrypted)
+- **Key**: `~/.aifs-commander/.key` (restricted permissions)
+- **Logs**: `~/.aifs-commander/tui.log`
 
 ## Logging
 

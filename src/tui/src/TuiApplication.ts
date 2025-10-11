@@ -1,9 +1,12 @@
 import blessed from 'blessed';
 import * as os from 'os';
 import * as path from 'path';
+import { spawn } from 'child_process';
 import { FileItem, NavigationHistoryEntry, PaneType, TuiApplicationOptions } from './types.js';
 import { ProviderManager } from './ProviderManager.js';
 import { StateManager } from './StateManager.js';
+import { ConfigUI } from './ConfigUI.js';
+import { ConfigManager } from './ConfigManager.js';
 
 export class TuiApplication {
   private screen: blessed.Widgets.Screen | null = null;
@@ -25,10 +28,17 @@ export class TuiApplication {
   };
   private providerManager: ProviderManager;
   private stateManager: StateManager;
+  private configManager: ConfigManager;
+  private configUI: ConfigUI | null = null;
+  private leftProvider: string = 'file';
+  private rightProvider: string = 'file';
+  private providerMenu: blessed.Widgets.ListElement | null = null;
+  private dividerPosition: number = 50; // Percentage of screen width
 
   constructor(_options?: TuiApplicationOptions) {
     this.providerManager = new ProviderManager();
     this.stateManager = new StateManager();
+    this.configManager = new ConfigManager();
   }
 
   async start(): Promise<void> {
@@ -54,13 +64,16 @@ export class TuiApplication {
         console.log('Using default directories');
       }
 
-      this.initializeScreen();
-      this.initializeLayout();
-      this.setupEventHandlers();
+    this.initializeScreen();
+    this.initializeLayout();
+    this.setupEventHandlers();
       
-      // Load initial directories
-      await this.loadDirectory('left', this.leftUri, this.leftSelected);
-      await this.loadDirectory('right', this.rightUri, this.rightSelected);
+    // Load provider configuration
+    await this.loadProviderConfiguration();
+
+    // Load initial directories
+    await this.loadDirectory('left', this.leftUri, this.leftSelected);
+    await this.loadDirectory('right', this.rightUri, this.rightSelected);
       
       this.screen!.render();
       console.log('TUI started successfully!');
@@ -111,13 +124,13 @@ export class TuiApplication {
         }
       }
     });
-
+    
     // Create left pane
     this.leftPane = blessed.list({
       parent: mainContainer,
       top: 0,
       left: 0,
-      width: '50%',
+      width: `${this.dividerPosition}%`,
       height: '100%',
       border: {
         type: 'line'
@@ -131,7 +144,8 @@ export class TuiApplication {
           fg: 'white'
         },
         item: {
-          fg: 'black'
+          fg: 'white',
+          bg: 'black'
         }
       },
       keys: true,
@@ -144,8 +158,8 @@ export class TuiApplication {
     this.rightPane = blessed.list({
       parent: mainContainer,
       top: 0,
-      left: '50%',
-      width: '50%',
+      left: `${this.dividerPosition}%`,
+      width: `${100 - this.dividerPosition}%`,
       height: '100%',
       border: {
         type: 'line'
@@ -159,7 +173,8 @@ export class TuiApplication {
           fg: 'white'
         },
         item: {
-          fg: 'black'
+          fg: 'white',
+          bg: 'black'
         }
       },
       keys: true,
@@ -177,8 +192,9 @@ export class TuiApplication {
       height: 1,
       content: 'AIFS Commander TUI - Press F1 for help, F10 to quit',
       style: {
-        bg: 'blue',
-        fg: 'white'
+        bg: 'dark-blue',
+        fg: 'white',
+        bold: true
       }
     });
 
@@ -221,6 +237,23 @@ export class TuiApplication {
       this.handleDelete();
     });
 
+    this.screen.key(['f9'], () => {
+      this.showConfiguration();
+    });
+
+    // Global key handlers for divider resizing
+    this.screen.key(['C-left'], () => {
+      this.handleGlobalKeyPress('', { name: 'left', ctrl: true });
+    });
+
+    this.screen.key(['C-right'], () => {
+      this.handleGlobalKeyPress('', { name: 'right', ctrl: true });
+    });
+
+    this.screen.key(['C-r'], () => {
+      this.handleGlobalKeyPress('', { name: 'r', ctrl: true });
+    });
+
     // Left pane events
     this.leftPane.on('select', (_item, index) => {
       this.leftSelected = index;
@@ -231,6 +264,11 @@ export class TuiApplication {
       this.handleKeyPress('left', ch, key);
     });
 
+    // Add double-click support for left pane
+    this.leftPane.on('click', () => {
+      this.handleSelection('left', null, this.leftSelected);
+    });
+
     // Right pane events
     this.rightPane.on('select', (_item, index) => {
       this.rightSelected = index;
@@ -239,6 +277,11 @@ export class TuiApplication {
 
     this.rightPane.on('keypress', (ch, key) => {
       this.handleKeyPress('right', ch, key);
+    });
+
+    // Add double-click support for right pane
+    this.rightPane.on('click', () => {
+      this.handleSelection('right', null, this.rightSelected);
     });
   }
 
@@ -260,12 +303,19 @@ export class TuiApplication {
         paneList.addItem('.. (parent directory)');
       }
       
+      // Calculate available width for this pane based on divider position
+      const screenWidth = this.screen!.width as number;
+      const paneWidth = pane === 'left' 
+        ? Math.floor((screenWidth * this.dividerPosition) / 100) - 2
+        : Math.floor((screenWidth * (100 - this.dividerPosition)) / 100) - 2;
+      
       // Add directories first
       const dirs = items.filter(item => item.isDirectory);
       for (const dir of dirs) {
         const isSelected = pane === 'left' ? this.leftSelectedItems.has(dir.uri) : this.rightSelectedItems.has(dir.uri);
         const prefix = isSelected ? '✓ ' : '  ';
-        paneList.addItem(`${prefix}📁 ${dir.name}/`);
+        const displayName = this.truncateFileName(dir.name, paneWidth);
+        paneList.addItem(`${prefix}📁 ${displayName}/`);
       }
       
       // Add files
@@ -274,7 +324,8 @@ export class TuiApplication {
         const isSelected = pane === 'left' ? this.leftSelectedItems.has(file.uri) : this.rightSelectedItems.has(file.uri);
         const prefix = isSelected ? '✓ ' : '  ';
         const size = file.size ? this.formatFileSize(file.size) : '';
-        paneList.addItem(`${prefix}📄 ${file.name} (${size})`);
+        const displayName = this.truncateFileName(file.name, paneWidth);
+        paneList.addItem(`${prefix}📄 ${displayName} (${size})`);
       }
       
       if (pane === 'left') {
@@ -331,8 +382,11 @@ export class TuiApplication {
       const newUri = path.join(uri, selectedItem.name);
       await this.loadDirectory(pane, newUri, 0); // Start at top of new directory
     } else {
-      // For files, toggle selection instead of showing error
-      this.toggleSelection(pane, index);
+      // For files, open with default application
+      const filePath = selectedItem.uri.startsWith('file://') 
+        ? selectedItem.uri.replace('file://', '') 
+        : selectedItem.uri;
+      await this.openFileWithDefaultApp(filePath);
     }
   }
 
@@ -377,6 +431,136 @@ export class TuiApplication {
       case 'space':
         this.toggleSelection(pane, currentSelected);
         break;
+      case 'p':
+        // Show provider menu for current pane
+        this.showProviderMenu(pane);
+        break;
+    }
+  }
+
+  private handleGlobalKeyPress(_ch: string, key: any): void {
+    switch (key.name) {
+      case 'left':
+        if (key.ctrl || key.meta) {
+          // Resize divider left
+          this.resizeDivider(-5);
+        }
+        break;
+      case 'right':
+        if (key.ctrl || key.meta) {
+          // Resize divider right
+          this.resizeDivider(5);
+        }
+        break;
+      case 'r':
+        if (key.ctrl || key.meta) {
+          // Reset divider to center
+          this.resizeDivider(0, true);
+        }
+        break;
+    }
+  }
+
+  private resizeDivider(delta: number, reset: boolean = false): void {
+    if (reset) {
+      this.dividerPosition = 50;
+    } else {
+      this.dividerPosition = Math.max(20, Math.min(80, this.dividerPosition + delta));
+    }
+    
+    // Update pane positions and sizes
+    if (this.leftPane && this.rightPane) {
+      this.leftPane.width = `${this.dividerPosition}%`;
+      this.rightPane.left = `${this.dividerPosition}%`;
+      this.rightPane.width = `${100 - this.dividerPosition}%`;
+      
+      // Refresh both panes to recalculate truncation
+      this.refreshCurrentPanes();
+      
+      this.showStatus(`Divider resized to ${this.dividerPosition}%`);
+    }
+  }
+
+  private async refreshCurrentPanes(): Promise<void> {
+    // Refresh both panes to recalculate truncation with new widths
+    await this.loadDirectory('left', this.leftUri, this.leftSelected);
+    await this.loadDirectory('right', this.rightUri, this.rightSelected);
+  }
+
+  private async showConfiguration(): Promise<void> {
+    if (!this.screen) return;
+
+    // Temporarily disable main TUI key handling
+    this.screen.removeAllListeners('keypress');
+    
+    this.configUI = new ConfigUI(this.screen);
+    
+    // Add global escape handler for configuration
+    const escapeHandler = (_ch: string, key: any) => {
+      if (key.name === 'escape' && this.configUI) {
+        this.configUI.hideConfigMenu();
+        this.screen!.removeListener('keypress', escapeHandler);
+        // Re-enable main TUI key handling
+        this.setupEventHandlers();
+      }
+    };
+    
+    this.screen.on('keypress', escapeHandler);
+    await this.configUI.showConfigMenu();
+  }
+
+  private async loadProviderConfiguration(): Promise<void> {
+    try {
+      const config = await this.configManager.loadConfig();
+      
+      // Update provider availability based on configuration
+      for (const provider of config.providers) {
+        this.providerManager.setProviderAvailability(provider.scheme, provider.enabled);
+      }
+    } catch (error) {
+      console.warn('Failed to load provider configuration:', (error as Error).message);
+    }
+  }
+
+  private async openFileWithDefaultApp(filePath: string): Promise<void> {
+    try {
+      const platform = process.platform;
+      let command: string;
+      let args: string[];
+
+      switch (platform) {
+        case 'darwin': // macOS
+          command = 'open';
+          args = [filePath];
+          break;
+        case 'win32': // Windows
+          command = 'cmd';
+          args = ['/c', 'start', '""', filePath];
+          break;
+        case 'linux': // Linux
+          command = 'xdg-open';
+          args = [filePath];
+          break;
+        default:
+          throw new Error(`Unsupported platform: ${platform}`);
+      }
+
+      const child = spawn(command, args, {
+        detached: true,
+        stdio: 'ignore'
+      });
+
+      child.unref(); // Allow the parent process to exit independently
+
+      this.showStatus(`Opening ${path.basename(filePath)} with default application...`);
+      
+      // Clear the status message after a short delay
+      setTimeout(() => {
+        this.updateStatus();
+      }, 2000);
+
+    } catch (error) {
+      this.showError(`Failed to open file: ${(error as Error).message}`);
     }
   }
 
@@ -442,21 +626,21 @@ export class TuiApplication {
       this.leftPane.focus();
       this.leftPane.style.border.fg = 'bright-blue';
       this.leftPane.style.border.bold = true;
-      this.leftPane.style.item.fg = 'black';
+      this.leftPane.style.item.fg = 'white';
       this.leftPane.style.item.bold = true;
       this.rightPane.style.border.fg = 'dark-gray';
       this.rightPane.style.border.bold = false;
-      this.rightPane.style.item.fg = 'black';
+      this.rightPane.style.item.fg = 'white';
       this.rightPane.style.item.bold = false;
     } else {
       this.rightPane.focus();
       this.rightPane.style.border.fg = 'bright-blue';
       this.rightPane.style.border.bold = true;
-      this.rightPane.style.item.fg = 'black';
+      this.rightPane.style.item.fg = 'white';
       this.rightPane.style.item.bold = true;
       this.leftPane.style.border.fg = 'dark-gray';
       this.leftPane.style.border.bold = false;
-      this.leftPane.style.item.fg = 'black';
+      this.leftPane.style.item.fg = 'white';
       this.leftPane.style.item.bold = false;
     }
     this.currentPane = pane;
@@ -466,8 +650,11 @@ export class TuiApplication {
   private updateStatus(): void {
     if (!this.statusBar) return;
     
-    const leftInfo = `Left: ${this.leftUri}`;
-    const rightInfo = `Right: ${this.rightUri}`;
+    const leftProviderInfo = this.providerManager.getProviderInfo(this.leftProvider);
+    const rightProviderInfo = this.providerManager.getProviderInfo(this.rightProvider);
+    
+    const leftInfo = `Left [${leftProviderInfo?.displayName || this.leftProvider}]: ${this.leftUri}`;
+    const rightInfo = `Right [${rightProviderInfo?.displayName || this.rightProvider}]: ${this.rightUri}`;
     
     // Get current selection info
     const currentPane = this.currentPane;
@@ -488,7 +675,8 @@ export class TuiApplication {
           const item = items[actualIndex];
           const size = item.size ? this.formatFileSize(item.size) : '';
           const type = item.isDirectory ? 'DIR' : 'FILE';
-          selectionInfo = `${type} ${size} ${item.name}`;
+          const displayName = this.truncateFileName(item.name, 25);
+          selectionInfo = `${type} ${size} ${displayName}`;
         }
       }
     }
@@ -497,7 +685,7 @@ export class TuiApplication {
     const selectionCount = selectedItems.size;
     const selectionText = selectionCount > 0 ? ` | Selected: ${selectionCount}` : '';
     
-    this.statusBar.content = `${leftInfo} | ${rightInfo} | ${selectionInfo}${selectionText} | Press F1 for help, F10 to quit`;
+    this.statusBar.content = `${leftInfo} | ${rightInfo} | ${selectionInfo}${selectionText} | Press P for provider, F9 for config, F1 for help, F10 to quit`;
     this.screen!.render();
   }
 
@@ -507,11 +695,13 @@ export class TuiApplication {
     this.statusBar.content = `ERROR: ${message}`;
     this.statusBar.style.fg = 'white';
     this.statusBar.style.bg = 'red';
+    this.statusBar.style.bold = true;
     this.screen!.render();
     
     setTimeout(() => {
       this.statusBar!.style.fg = 'white';
-      this.statusBar!.style.bg = 'blue';
+      this.statusBar!.style.bg = 'dark-blue';
+      this.statusBar!.style.bold = true;
       this.updateStatus();
     }, 3000);
   }
@@ -535,13 +725,25 @@ export class TuiApplication {
         fg: 'white',
         bg: 'black'
       },
+      scrollable: true,
+      alwaysScroll: true,
+      scrollbar: {
+        ch: ' ',
+        track: {
+          bg: 'cyan'
+        },
+        style: {
+          inverse: true
+        }
+      },
       content: `
 AIFS Commander TUI - Help
 
 Navigation:
   Tab          - Switch between panes
   ↑/↓          - Navigate file list
-  Enter        - Open directory/file
+  Enter        - Open directory or file with default app
+  Click        - Open directory or file with default app
   Backspace    - Go to parent directory
   Space        - Toggle file selection
 
@@ -550,6 +752,21 @@ File Operations:
   F6           - Move selected files to other pane
   F7           - Create new directory
   F8           - Delete selected files
+  F9           - Open configuration panel
+
+Provider Switching:
+  P            - Switch provider for current pane
+  Available:   Local File System, S3, GCS, Azure, AIFS
+
+Pane Resizing:
+  Ctrl+Left    - Move divider left (make left pane smaller)
+  Ctrl+Right   - Move divider right (make right pane smaller)
+  Ctrl+R       - Reset divider to center (50/50)
+
+Configuration:
+  F9           - Open configuration panel
+  Configure   - Provider credentials and settings
+  Encrypted   - All data stored securely encrypted
 
 System:
   F1           - Show this help
@@ -558,6 +775,21 @@ System:
 Selection:
   Space        - Toggle selection of current item
   Selected items show with ✓ prefix
+
+Configuration Panel:
+  E            - Enable/Disable provider
+  C            - Configure credentials
+  S            - Configure settings
+  T            - Test connection
+  D            - Delete configuration
+  ESC          - Close configuration panel
+
+Security Features:
+  • AES-256-CBC encryption for all stored data
+  • Secure key management with restricted permissions
+  • Credential masking in the interface
+  • Configuration validation before enabling providers
+  • Encrypted storage in ~/.aifs-commander/
 
 Press any key to close this help.
       `,
@@ -612,6 +844,39 @@ Press any key to close this help.
     const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  }
+
+  private truncateFileName(name: string, availableWidth: number): string {
+    // Calculate the actual available width for the filename
+    // Account for prefixes (✓, 📁/📄), spaces, and size info
+    const prefixLength = 3; // "✓ " or "  "
+    const iconLength = 2; // "📁" or "📄"
+    const spaceAfterIcon = 1; // " "
+    const spaceBeforeSize = 1; // " "
+    const sizeInfoLength = 15; // Approximate size info like "(155.69 MB)"
+    const padding = 2; // Some padding for safety
+    
+    const maxNameLength = availableWidth - prefixLength - iconLength - spaceAfterIcon - spaceBeforeSize - sizeInfoLength - padding;
+    
+    if (name.length <= maxNameLength) {
+      return name;
+    }
+    
+    // Find the last dot to preserve file extension
+    const lastDot = name.lastIndexOf('.');
+    if (lastDot > 0 && lastDot > name.length - 8) {
+      // Has a reasonable extension, truncate before the extension
+      const extension = name.substring(lastDot);
+      const nameWithoutExt = name.substring(0, lastDot);
+      const availableLength = maxNameLength - extension.length - 3; // 3 for "..."
+      
+      if (availableLength > 0) {
+        return `${nameWithoutExt.substring(0, availableLength)}...${extension}`;
+      }
+    }
+    
+    // No extension or extension too long, just truncate
+    return `${name.substring(0, maxNameLength - 3)}...`;
   }
 
   private async handleCopy(): Promise<void> {
@@ -824,12 +1089,17 @@ Press any key to close this help.
       itemsToDelete = Array.from(selectedItems);
     }
 
-    // Show confirmation dialog
-    const confirmBox = blessed.prompt({
+    const itemNames = itemsToDelete
+      .map(uri => currentItems.find(item => item.uri === uri)?.name)
+      .filter(Boolean)
+      .join(', ');
+
+    // Create a simple confirmation box
+    const confirmBox = blessed.box({
       parent: this.screen!,
       top: 'center',
       left: 'center',
-      width: '50%',
+      width: '60%',
       height: 'shrink',
       border: {
         type: 'line'
@@ -841,48 +1111,164 @@ Press any key to close this help.
         fg: 'white',
         bg: 'black'
       },
-      label: 'Confirm Delete',
+      content: `Delete ${itemsToDelete.length} item(s): ${itemNames}?\n\nPress 'y' to confirm or any other key to cancel.`,
       keys: true,
       vi: true,
       mouse: true
     });
 
-    const itemNames = itemsToDelete
-      .map(uri => currentItems.find(item => item.uri === uri)?.name)
-      .filter(Boolean)
-      .join(', ');
+    // Handle key press for confirmation
+    const handleKey = (ch: string, key: any) => {
+      if (key.name === 'y' || ch === 'y') {
+        // Confirm deletion
+        confirmBox.detach();
+        this.screen!.render();
+        
+        this.performDelete(itemsToDelete, currentUri);
+      } else {
+        // Cancel deletion
+        confirmBox.detach();
+        this.screen!.render();
+        this.updateStatus();
+      }
+    };
 
-    confirmBox.input(`Delete ${itemsToDelete.length} item(s): ${itemNames}? (y/N):`, '', async (err: any, value: any) => {
-      confirmBox.detach();
+    confirmBox.on('keypress', handleKey);
+    confirmBox.focus();
+    this.screen!.render();
+  }
+
+  private async performDelete(itemsToDelete: string[], currentUri: string): Promise<void> {
+    try {
+      this.showStatus(`Deleting ${itemsToDelete.length} item(s)...`);
+      
+      for (const itemUri of itemsToDelete) {
+        await this.providerManager.delete(itemUri, true); // recursive delete
+      }
+
+      this.showStatus(`Successfully deleted ${itemsToDelete.length} item(s)`);
+      
+      // Clear selections and refresh current pane
+      if (this.currentPane === 'left') {
+        this.leftSelectedItems.clear();
+      } else {
+        this.rightSelectedItems.clear();
+      }
+      
+      await this.loadDirectory(this.currentPane, currentUri);
+      
+    } catch (error) {
+      this.showError(`Delete failed: ${(error as Error).message}`);
+    }
+  }
+
+  private showProviderMenu(pane: PaneType): void {
+    if (!this.screen) return;
+
+    const providers = this.providerManager.getAllProviders();
+    const currentProvider = pane === 'left' ? this.leftProvider : this.rightProvider;
+
+    // Create provider selection menu
+    this.providerMenu = blessed.list({
+      parent: this.screen,
+      top: 'center',
+      left: 'center',
+      width: '50%',
+      height: '60%',
+      border: {
+        type: 'line'
+      },
+      style: {
+        border: {
+          fg: 'blue'
+        },
+        selected: {
+          bg: 'blue',
+          fg: 'white'
+        },
+        item: {
+          fg: 'white',
+          bg: 'black'
+        }
+      },
+      keys: true,
+      vi: true,
+      mouse: true,
+      scrollable: true,
+      label: `Select Provider for ${pane.toUpperCase()} Pane`,
+      items: providers.map(provider => {
+        const status = provider.available ? '✓' : '✗';
+        const current = provider.scheme === currentProvider ? ' (current)' : '';
+        return `${status} ${provider.displayName}${current}`;
+      })
+    });
+
+    // Handle selection
+    this.providerMenu.on('select', (_item: any, index: number) => {
+      const selectedProvider = providers[index];
+      this.providerMenu!.detach();
       this.screen!.render();
 
-      if (err || !value || value.toLowerCase() !== 'y') return;
-
-      try {
-        this.showStatus(`Deleting ${itemsToDelete.length} item(s)...`);
-        
-        for (const itemUri of itemsToDelete) {
-          await this.providerManager.delete(itemUri, true); // recursive delete
-        }
-
-        this.showStatus(`Successfully deleted ${itemsToDelete.length} item(s)`);
-        
-        // Clear selections and refresh current pane
-        if (this.currentPane === 'left') {
-          this.leftSelectedItems.clear();
-        } else {
-          this.rightSelectedItems.clear();
-        }
-        
-        await this.loadDirectory(this.currentPane, currentUri);
-        
-      } catch (error) {
-        this.showError(`Delete failed: ${(error as Error).message}`);
+      if (selectedProvider.available) {
+        this.switchProvider(pane, selectedProvider.scheme);
+      } else {
+        this.showError(`${selectedProvider.displayName} is not available. Please configure credentials.`);
       }
     });
 
-    confirmBox.focus();
-    this.screen!.render();
+    // Handle escape key
+    this.providerMenu.key(['escape'], () => {
+      this.providerMenu!.detach();
+      this.screen!.render();
+    });
+
+    this.providerMenu.focus();
+    this.screen.render();
+  }
+
+  private async switchProvider(pane: PaneType, providerScheme: string): Promise<void> {
+    try {
+      // Set the provider for the specified pane
+      if (pane === 'left') {
+        this.leftProvider = providerScheme;
+        this.leftUri = this.getProviderRootUri(providerScheme);
+        this.leftSelected = 0;
+        this.leftSelectedItems.clear();
+      } else {
+        this.rightProvider = providerScheme;
+        this.rightUri = this.getProviderRootUri(providerScheme);
+        this.rightSelected = 0;
+        this.rightSelectedItems.clear();
+      }
+
+      // Update provider manager
+      this.providerManager.setCurrentProvider(providerScheme);
+
+      // Load the new directory
+      await this.loadDirectory(pane, pane === 'left' ? this.leftUri : this.rightUri);
+
+      this.showStatus(`Switched ${pane} pane to ${this.providerManager.getProviderInfo(providerScheme)?.displayName}`);
+
+    } catch (error) {
+      this.showError(`Failed to switch provider: ${(error as Error).message}`);
+    }
+  }
+
+  private getProviderRootUri(providerScheme: string): string {
+    switch (providerScheme) {
+      case 'file':
+        return os.homedir();
+      case 's3':
+        return 's3://';
+      case 'gcs':
+        return 'gcs://';
+      case 'az':
+        return 'az://';
+      case 'aifs':
+        return 'aifs://';
+      default:
+        return os.homedir();
+    }
   }
 
   private showStatus(message: string): void {
@@ -891,11 +1277,13 @@ Press any key to close this help.
     this.statusBar.content = message;
     this.statusBar.style.fg = 'white';
     this.statusBar.style.bg = 'green';
+    this.statusBar.style.bold = true;
     this.screen!.render();
     
     setTimeout(() => {
       this.statusBar!.style.fg = 'white';
-      this.statusBar!.style.bg = 'blue';
+      this.statusBar!.style.bg = 'dark-blue';
+      this.statusBar!.style.bold = true;
       this.updateStatus();
     }, 2000);
   }
