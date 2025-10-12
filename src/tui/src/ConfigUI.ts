@@ -35,8 +35,8 @@ export class ConfigUI {
         border: {
           fg: 'blue'
         },
-        fg: 'white',
-        bg: 'black'
+        fg: 'black',
+        bg: 'white'
       },
       label: 'Provider Configuration',
       keys: true,
@@ -54,19 +54,19 @@ export class ConfigUI {
       border: {
         type: 'line'
       },
-      style: {
-        border: {
-          fg: 'gray'
-        },
-        selected: {
-          bg: 'blue',
-          fg: 'white'
-        },
-        item: {
-          fg: 'white',
-          bg: 'black'
-        }
-      },
+          style: {
+            border: {
+              fg: 'gray'
+            },
+            selected: {
+              bg: 'blue',
+              fg: 'white'
+            },
+            item: {
+              fg: 'black',
+              bg: 'white'
+            }
+          },
       keys: true,
       vi: true,
       mouse: true,
@@ -88,14 +88,15 @@ export class ConfigUI {
         border: {
           fg: 'gray'
         },
-        fg: 'white',
-        bg: 'black'
+        fg: 'black',
+        bg: 'white'
       },
       label: 'Configuration',
       keys: true,
       vi: true,
       mouse: true,
-      scrollable: true
+      scrollable: true,
+      focusable: true
     });
 
     // Add key handling to form box
@@ -103,14 +104,8 @@ export class ConfigUI {
       this.hideConfigMenu();
     });
 
-    this.formBox.key(['e', 'c', 's', 't', 'd', 'E', 'C', 'S', 'T', 'D'], (ch, key) => {
-      this.handleKeyPress(ch, key);
-    });
-
-    // Also handle keys on the provider list (case insensitive)
-    this.providerList.key(['e', 'c', 's', 't', 'd', 'E', 'C', 'S', 'T', 'D'], (ch, key) => {
-      this.handleKeyPress(ch, key);
-    });
+    // Configuration details are read-only, no navigation needed
+    // Focus should remain on provider list for navigation
 
     // Load providers
     await this.loadProviders();
@@ -145,6 +140,13 @@ export class ConfigUI {
       
       this.currentProvider = providerConfig;
       await this.showProviderForm();
+      
+      // Keep focus on provider list for consistent key handling
+      // The action keys are registered on mainBox, so focus should stay there
+      if (this.providerList) {
+        this.providerList.focus();
+        this.screen.render();
+      }
     });
 
     // Handle escape key globally
@@ -152,14 +154,10 @@ export class ConfigUI {
       this.hideConfigMenu();
     });
 
-    // Handle key presses in the main configuration box
-    this.mainBox.key(['e', 'c', 's', 't', 'd'], (ch, key) => {
+    // Handle action keys ONLY on the main configuration box
+    // This ensures consistent behavior regardless of focus
+    this.mainBox.key(['e', 'c', 's', 't', 'd', 'E', 'C', 'S', 'T', 'D'], (ch, key) => {
       this.handleKeyPress(ch, key);
-    });
-
-    // Also handle keys on the provider list
-    this.providerList.key(['escape'], () => {
-      this.hideConfigMenu();
     });
 
     this.providerList.focus();
@@ -201,39 +199,64 @@ export class ConfigUI {
     this.formBox.setContent(''); // Clear previous content
 
     const provider = this.currentProvider;
+    
+    // Create simple configuration display (read-only)
     let content = `Provider: ${provider.name}\n`;
     content += `Scheme: ${provider.scheme}\n`;
-    content += `Status: ${provider.enabled ? 'Enabled' : 'Disabled'}\n\n`;
+    content += `Status: ${provider.enabled ? '✓ Enabled' : '✗ Disabled'}\n\n`;
 
+    // Show credentials section
+    content += 'Credentials:\n';
     if (provider.credentials && Object.keys(provider.credentials).length > 0) {
-      content += 'Credentials:\n';
       for (const [key, value] of Object.entries(provider.credentials)) {
         const displayValue = this.maskSensitiveData(key, value);
-        content += `  ${key}: ${displayValue}\n`;
+        const status = value ? '✓' : '✗';
+        content += `  ${status} ${key}: ${displayValue}\n`;
       }
-      content += '\n';
+    } else {
+      content += '  No credentials configured\n';
     }
+    content += '\n';
 
+    // Show settings section
+    content += 'Settings:\n';
     if (provider.settings && Object.keys(provider.settings).length > 0) {
-      content += 'Settings:\n';
       for (const [key, value] of Object.entries(provider.settings)) {
         content += `  ${key}: ${value}\n`;
       }
-      content += '\n';
+    } else {
+      content += '  No custom settings\n';
     }
+    content += '\n';
 
-    content += 'Actions:\n';
+    // Show validation status
+    const validation = await this.configManager.validateProviderConfig(provider.scheme);
+    content += 'Validation:\n';
+    if (validation.valid) {
+      content += '  ✓ Configuration is valid\n';
+    } else {
+      content += '  ✗ Configuration errors:\n';
+      for (const error of validation.errors) {
+        content += `    - ${error}\n`;
+      }
+    }
+    content += '\n';
+
+    content += 'Actions (use action keys):\n';
     content += '  E - Enable/Disable provider\n';
     content += '  C - Configure credentials\n';
     content += '  S - Configure settings\n';
     content += '  T - Test connection\n';
     content += '  D - Delete configuration\n';
     content += '\n';
-    content += 'Press ESC to close, or use the actions above.';
+    content += 'Use ↑↓ to navigate providers, action keys for operations, ESC to close';
 
     this.formBox.setContent(content);
+    // Don't focus formBox - keep focus on provider list
     this.screen.render();
   }
+
+
 
   private maskSensitiveData(key: string, value: string): string {
     const sensitiveKeys = ['secret', 'key', 'token', 'password', 'auth'];
@@ -303,7 +326,16 @@ export class ConfigUI {
 
   // Handle key presses in the configuration UI
   handleKeyPress(_ch: string, key: any): boolean {
-    if (!this.mainBox || !this.currentProvider) return false;
+    // Validate that we have the required components
+    if (!this.mainBox || !this.currentProvider || !this.providerList) {
+      return false;
+    }
+
+    // Process keys if we're in the configuration UI (mainBox is visible)
+    // The keys are registered on mainBox, so they should work when mainBox is active
+    if (!this.mainBox.visible) {
+      return false;
+    }
 
     // Handle both uppercase and lowercase keys
     const keyName = key.name.toLowerCase();
@@ -332,15 +364,26 @@ export class ConfigUI {
   private async toggleProvider(): Promise<void> {
     if (!this.currentProvider) return;
 
+    const providerScheme = this.currentProvider.scheme;
+    
     try {
       if (this.currentProvider.enabled) {
-        await this.configManager.disableProvider(this.currentProvider.scheme);
+        await this.configManager.disableProvider(providerScheme);
+        this.showSuccess(`${this.currentProvider.name} disabled`);
       } else {
-        await this.configManager.enableProvider(this.currentProvider.scheme);
+        await this.configManager.enableProvider(providerScheme);
+        this.showSuccess(`${this.currentProvider.name} enabled`);
       }
       
       await this.loadProviders();
-      await this.showProviderForm();
+      
+      // Reload current provider and refresh form
+      this.currentProvider = await this.configManager.getProviderConfig(providerScheme);
+      if (this.currentProvider) {
+        await this.showProviderForm();
+      }
+      
+      // Focus remains on provider list for consistent key handling
     } catch (error) {
       this.showError(`Failed to toggle provider: ${(error as Error).message}`);
     }
@@ -428,11 +471,16 @@ export class ConfigUI {
       // Enable the provider
       await this.configManager.enableProvider(this.currentProvider!.scheme);
       
+      // Reload current provider to reflect saved state
+      this.currentProvider = await this.configManager.getProviderConfig(this.currentProvider!.scheme);
+      
       // Reload the main configuration
       await this.loadProviders();
       await this.showProviderForm();
       
       this.showSuccess('Credentials saved and provider enabled!');
+      
+      // Focus remains on provider list for consistent key handling
     } catch (error) {
       this.showError(`Failed to save credentials: ${(error as Error).message}`);
     }
@@ -440,42 +488,64 @@ export class ConfigUI {
 
   private async promptForInput(prompt: string, defaultValue: string = ''): Promise<string> {
     return new Promise((resolve, reject) => {
-      const inputBox = blessed.prompt({
+      const dialog = blessed.box({
         parent: this.screen,
         top: 'center',
         left: 'center',
-        width: '60%',
-        height: 'shrink',
-        border: {
-          type: 'line'
-        },
+        width: '70%',
+        height: 7,
+        border: { type: 'line' },
         style: {
-          border: {
-            fg: 'green'
-          },
-          fg: 'white',
-          bg: 'black'
+          border: { fg: 'green' },
+          fg: 'black',
+          bg: 'white'
         },
-        label: 'Configure Credentials',
-        keys: true,
-        vi: true,
-        mouse: true
+        label: 'Configure Credentials'
       });
 
-      inputBox.input(prompt, defaultValue, (err: any, value: any) => {
-        inputBox.detach();
+      blessed.text({
+        parent: dialog,
+        top: 0,
+        left: 1,
+        content: prompt
+      });
+
+      const input = blessed.textbox({
+        parent: dialog,
+        top: 2,
+        left: 1,
+        width: '100%-2',
+        height: 1,
+        inputOnFocus: true,
+        style: {
+          fg: 'black',
+          bg: 'white'
+        },
+        value: defaultValue
+      });
+
+      blessed.text({
+        parent: dialog,
+        bottom: 0,
+        left: 1,
+        content: 'Press Enter to confirm, ESC to cancel'
+      });
+
+      input.key(['enter'], () => {
+        const value = input.getValue();
+        dialog.detach();
         this.screen.render();
-
-        if (err) {
-          reject(err);
-        } else if (value === null || value === undefined) {
-          reject(new Error('Cancelled'));
-        } else {
-          resolve(value || '');
-        }
+        resolve(value);
       });
 
-      inputBox.focus();
+      input.key(['escape'], () => {
+        dialog.detach();
+        this.screen.render();
+        reject(new Error('Cancelled'));
+      });
+
+      dialog.focus();
+      input.focus();
       this.screen.render();
     });
   }
@@ -497,12 +567,14 @@ export class ConfigUI {
         'This will remove all saved credentials and settings for this provider.'
       );
       
-      if (confirmed) {
-        await this.configManager.deleteProviderConfig(this.currentProvider.scheme);
-        await this.loadProviders();
-        await this.showProviderForm();
-        this.showSuccess(`Configuration for ${this.currentProvider.name} deleted`);
-      }
+          if (confirmed) {
+            await this.configManager.deleteProviderConfig(this.currentProvider.scheme);
+            await this.loadProviders();
+            await this.showProviderForm();
+            this.showSuccess(`Configuration for ${this.currentProvider.name} deleted`);
+            
+            // Focus remains on provider list for consistent key handling
+          }
     } catch (error) {
       this.showError(`Failed to delete configuration: ${(error as Error).message}`);
     }
@@ -557,13 +629,197 @@ export class ConfigUI {
     try {
       const validation = await this.configManager.validateProviderConfig(this.currentProvider.scheme);
       
-      if (validation.valid) {
-        this.showError('Connection test not yet implemented');
-      } else {
+      if (!validation.valid) {
         this.showError(`Configuration errors: ${validation.errors.join(', ')}`);
+        return;
       }
+
+      // Show testing dialog
+      const testDialog = blessed.box({
+        parent: this.screen,
+        top: 'center',
+        left: 'center',
+        width: '60%',
+        height: 8,
+        border: { type: 'line' },
+        style: {
+          border: { fg: 'yellow' },
+          fg: 'black',
+          bg: 'white'
+        },
+        label: 'Testing Connection'
+      });
+
+      blessed.text({
+        parent: testDialog,
+        top: 0,
+        left: 1,
+        content: `Testing ${this.currentProvider.name}...`
+      });
+
+      blessed.text({
+        parent: testDialog,
+        top: 2,
+        left: 1,
+        content: 'Please wait...'
+      });
+
+      testDialog.focus();
+      this.screen.render();
+
+      // Perform actual connection test
+      const testResult = await this.performConnectionTest(this.currentProvider.scheme);
+      
+      // Close test dialog
+      testDialog.detach();
+      this.screen.render();
+
+      if (testResult.success) {
+        this.showSuccess(`Connection test passed: ${testResult.message}`);
+      } else {
+        this.showError(`Connection test failed: ${testResult.message}`);
+      }
+      
+      // Focus remains on provider list for consistent key handling
+
     } catch (error) {
       this.showError(`Test failed: ${(error as Error).message}`);
+    }
+  }
+
+  private async performConnectionTest(scheme: string): Promise<{success: boolean, message: string}> {
+    switch (scheme) {
+      case 'file':
+        return this.testFileProvider();
+      case 's3':
+        return this.testS3Provider();
+      case 'gcs':
+        return this.testGCSProvider();
+      case 'az':
+        return this.testAzureProvider();
+      case 'aifs':
+        return this.testAIFSProvider();
+      default:
+        return { success: false, message: 'Unknown provider type' };
+    }
+  }
+
+  private async testFileProvider(): Promise<{success: boolean, message: string}> {
+    try {
+      const fs = await import('fs/promises');
+      const path = await import('path');
+      const os = await import('os');
+      
+      const homeDir = os.homedir();
+      const testFile = path.join(homeDir, '.aifs-test-file');
+      
+      // Test write
+      await fs.writeFile(testFile, 'test');
+      
+      // Test read
+      await fs.readFile(testFile, 'utf8');
+      
+      // Test delete
+      await fs.unlink(testFile);
+      
+      return { success: true, message: 'File system access working correctly' };
+    } catch (error) {
+      return { success: false, message: `File system test failed: ${(error as Error).message}` };
+    }
+  }
+
+  private async testS3Provider(): Promise<{success: boolean, message: string}> {
+    try {
+      const provider = await this.configManager.getProviderConfig('s3');
+      if (!provider) {
+        return { success: false, message: 'S3 provider not configured' };
+      }
+
+      const { S3Client, HeadBucketCommand } = await import('@aws-sdk/client-s3');
+      
+      const client = new S3Client({
+        region: provider.credentials.region || 'us-east-1',
+        credentials: {
+          accessKeyId: provider.credentials.accessKeyId || '',
+          secretAccessKey: provider.credentials.secretAccessKey || ''
+        }
+      });
+
+      const command = new HeadBucketCommand({
+        Bucket: provider.credentials.bucket || ''
+      });
+
+      await client.send(command);
+      return { success: true, message: 'S3 connection successful' };
+    } catch (error) {
+      return { success: false, message: `S3 test failed: ${(error as Error).message}` };
+    }
+  }
+
+  private async testGCSProvider(): Promise<{success: boolean, message: string}> {
+    try {
+      const provider = await this.configManager.getProviderConfig('gcs');
+      if (!provider) {
+        return { success: false, message: 'GCS provider not configured' };
+      }
+
+      // For GCS, we would typically test with @google-cloud/storage
+      // This is a simplified test
+      if (!provider.credentials.projectId || !provider.credentials.bucket) {
+        return { success: false, message: 'GCS credentials incomplete' };
+      }
+
+      return { success: true, message: 'GCS configuration valid (connection test requires Google Cloud SDK)' };
+    } catch (error) {
+      return { success: false, message: `GCS test failed: ${(error as Error).message}` };
+    }
+  }
+
+  private async testAzureProvider(): Promise<{success: boolean, message: string}> {
+    try {
+      const provider = await this.configManager.getProviderConfig('az');
+      if (!provider) {
+        return { success: false, message: 'Azure provider not configured' };
+      }
+
+      // For Azure, we would typically test with @azure/storage-blob
+      // This is a simplified test
+      if (!provider.credentials.containerName) {
+        return { success: false, message: 'Azure container name required' };
+      }
+
+      if (!provider.credentials.connectionString && 
+          (!provider.credentials.accountName || !provider.credentials.accountKey)) {
+        return { success: false, message: 'Azure credentials incomplete' };
+      }
+
+      return { success: true, message: 'Azure configuration valid (connection test requires Azure SDK)' };
+    } catch (error) {
+      return { success: false, message: `Azure test failed: ${(error as Error).message}` };
+    }
+  }
+
+  private async testAIFSProvider(): Promise<{success: boolean, message: string}> {
+    try {
+      const provider = await this.configManager.getProviderConfig('aifs');
+      if (!provider) {
+        return { success: false, message: 'AIFS provider not configured' };
+      }
+
+      if (!provider.credentials.endpoint) {
+        return { success: false, message: 'AIFS endpoint required' };
+      }
+
+      // For AIFS, we would test gRPC connection
+      // This is a simplified test
+      const endpoint = provider.credentials.endpoint;
+      if (!endpoint.includes(':')) {
+        return { success: false, message: 'AIFS endpoint must include port (e.g., localhost:50052)' };
+      }
+
+      return { success: true, message: `AIFS endpoint ${endpoint} format valid (connection test requires gRPC client)` };
+    } catch (error) {
+      return { success: false, message: `AIFS test failed: ${(error as Error).message}` };
     }
   }
 
@@ -582,8 +838,8 @@ export class ConfigUI {
         border: {
           fg: 'red'
         },
-        fg: 'white',
-        bg: 'red'
+        fg: 'black',
+        bg: 'white'
       },
       content: `Error: ${message}`,
       keys: true,
@@ -614,8 +870,8 @@ export class ConfigUI {
         border: {
           fg: 'green'
         },
-        fg: 'white',
-        bg: 'green'
+        fg: 'black',
+        bg: 'white'
       },
       content: `Success: ${message}`,
       keys: true,
@@ -637,4 +893,5 @@ export class ConfigUI {
       this.screen.render();
     }, 3000);
   }
+
 }

@@ -43,12 +43,13 @@ export class TuiApplication {
 
   async start(): Promise<void> {
     try {
-      console.log('Starting AIFS Commander TUI...');
+      // Check terminal size (be more lenient)
+      const rows = process.stdout.rows || parseInt(process.env.LINES || '24');
+      const cols = process.stdout.columns || parseInt(process.env.COLUMNS || '80');
       
-      // Check terminal size
-      const { rows, cols } = process.stdout as any;
-      if (rows < 20 || cols < 80) {
-        console.error('Terminal size too small. Please resize to at least 80x20');
+      if (rows < 6 || cols < 20) {
+        console.error('Terminal size too small. Please resize to at least 20x6');
+        console.error(`Current size: ${cols}x${rows}`);
         process.exit(1);
       }
 
@@ -59,9 +60,6 @@ export class TuiApplication {
         this.rightUri = savedState.rightUri;
         this.leftSelected = savedState.leftSelectedIndex;
         this.rightSelected = savedState.rightSelectedIndex;
-        console.log(`Restored state: Left=${this.leftUri}, Right=${this.rightUri}`);
-      } else {
-        console.log('Using default directories');
       }
 
     this.initializeScreen();
@@ -76,7 +74,6 @@ export class TuiApplication {
     await this.loadDirectory('right', this.rightUri, this.rightSelected);
       
       this.screen!.render();
-      console.log('TUI started successfully!');
       
     } catch (error) {
       console.error('Failed to start TUI:', error);
@@ -92,7 +89,7 @@ export class TuiApplication {
         artificial: true,
         shape: 'block',
         blink: true,
-        color: 'white'
+        color: 'black'
       }
     });
 
@@ -121,7 +118,9 @@ export class TuiApplication {
       style: {
         border: {
           fg: 'dark-gray'
-        }
+        },
+        fg: 'black',
+        bg: 'white'
       }
     });
     
@@ -132,6 +131,7 @@ export class TuiApplication {
       left: 0,
       width: `${this.dividerPosition}%`,
       height: '100%',
+      name: 'leftPane',
       border: {
         type: 'line'
       },
@@ -144,8 +144,8 @@ export class TuiApplication {
           fg: 'white'
         },
         item: {
-          fg: 'white',
-          bg: 'black'
+          fg: 'black',
+          bg: 'white'
         }
       },
       keys: true,
@@ -161,6 +161,7 @@ export class TuiApplication {
       left: `${this.dividerPosition}%`,
       width: `${100 - this.dividerPosition}%`,
       height: '100%',
+      name: 'rightPane',
       border: {
         type: 'line'
       },
@@ -173,8 +174,8 @@ export class TuiApplication {
           fg: 'white'
         },
         item: {
-          fg: 'white',
-          bg: 'black'
+          fg: 'black',
+          bg: 'white'
         }
       },
       keys: true,
@@ -190,9 +191,10 @@ export class TuiApplication {
       left: 0,
       width: '100%',
       height: 1,
+      name: 'statusBar',
       content: 'AIFS Commander TUI - Press F1 for help, F10 to quit',
       style: {
-        bg: 'dark-blue',
+        bg: 'dark-gray',
         fg: 'white',
         bold: true
       }
@@ -626,21 +628,21 @@ export class TuiApplication {
       this.leftPane.focus();
       this.leftPane.style.border.fg = 'bright-blue';
       this.leftPane.style.border.bold = true;
-      this.leftPane.style.item.fg = 'white';
+      this.leftPane.style.item.fg = 'black';
       this.leftPane.style.item.bold = true;
       this.rightPane.style.border.fg = 'dark-gray';
       this.rightPane.style.border.bold = false;
-      this.rightPane.style.item.fg = 'white';
+      this.rightPane.style.item.fg = 'black';
       this.rightPane.style.item.bold = false;
     } else {
       this.rightPane.focus();
       this.rightPane.style.border.fg = 'bright-blue';
       this.rightPane.style.border.bold = true;
-      this.rightPane.style.item.fg = 'white';
+      this.rightPane.style.item.fg = 'black';
       this.rightPane.style.item.bold = true;
       this.leftPane.style.border.fg = 'dark-gray';
       this.leftPane.style.border.bold = false;
-      this.leftPane.style.item.fg = 'white';
+      this.leftPane.style.item.fg = 'black';
       this.leftPane.style.item.bold = false;
     }
     this.currentPane = pane;
@@ -700,7 +702,7 @@ export class TuiApplication {
     
     setTimeout(() => {
       this.statusBar!.style.fg = 'white';
-      this.statusBar!.style.bg = 'dark-blue';
+      this.statusBar!.style.bg = 'dark-gray';
       this.statusBar!.style.bold = true;
       this.updateStatus();
     }, 3000);
@@ -722,8 +724,8 @@ export class TuiApplication {
         border: {
           fg: 'bright-blue'
         },
-        fg: 'white',
-        bg: 'black'
+        fg: 'black',
+        bg: 'white'
       },
       scrollable: true,
       alwaysScroll: true,
@@ -1282,7 +1284,7 @@ Press any key to close this help.
     
     setTimeout(() => {
       this.statusBar!.style.fg = 'white';
-      this.statusBar!.style.bg = 'dark-blue';
+      this.statusBar!.style.bg = 'dark-gray';
       this.statusBar!.style.bold = true;
       this.updateStatus();
     }, 2000);

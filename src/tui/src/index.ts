@@ -2,9 +2,10 @@
 
 import { TuiApplication } from './TuiApplication.js';
 
-// Check if running in terminal
-if (!process.stdout.isTTY) {
+// Check if running in terminal (be more lenient)
+if (!process.stdout.isTTY && !process.env.FORCE_TUI) {
   console.error('AIFS Commander TUI requires a terminal environment');
+  console.error('Set FORCE_TUI=1 to override this check');
   process.exit(1);
 }
 
