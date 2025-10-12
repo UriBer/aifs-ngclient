@@ -831,12 +831,10 @@ Press any key to close this help.
         this.leftSelected,
         this.rightSelected
       );
-      console.log('State saved successfully');
     } catch (error) {
       console.warn('Failed to save state:', (error as Error).message);
     }
     
-    console.log('Shutting down TUI application');
     process.exit(0);
   }
 
@@ -924,6 +922,9 @@ Press any key to close this help.
         const targetName = item.name;
         const targetPath = targetUri.replace(/\/$/, '');
         const targetItemUri = `file://${path.resolve(targetPath, targetName)}`;
+        
+        const itemType = item.isDirectory ? 'directory' : 'file';
+        this.showStatus(`Copying ${itemType}: ${item.name}...`);
         
         await this.providerManager.copy(itemUri, targetItemUri);
       }
@@ -1015,12 +1016,12 @@ Press any key to close this help.
     const currentUri = this.currentPane === 'left' ? this.leftUri : this.rightUri;
     
     // Show input dialog for directory name
-    const inputBox = blessed.prompt({
+    const dialog = blessed.box({
       parent: this.screen!,
       top: 'center',
       left: 'center',
       width: '50%',
-      height: 'shrink',
+      height: 7,
       border: {
         type: 'line'
       },
@@ -1037,15 +1038,48 @@ Press any key to close this help.
       mouse: true
     });
 
-    inputBox.input('Enter directory name:', '', async (err, value) => {
-      inputBox.detach();
+    blessed.text({
+      parent: dialog,
+      top: 0,
+      left: 1,
+      content: 'Enter directory name:'
+    });
+
+    const input = blessed.textbox({
+      parent: dialog,
+      top: 2,
+      left: 1,
+      width: '100%-2',
+      height: 1,
+      inputOnFocus: true,
+      style: {
+        fg: 'black',
+        bg: 'white'
+      }
+    });
+
+    blessed.text({
+      parent: dialog,
+      bottom: 0,
+      left: 1,
+      content: 'Press Enter to confirm, ESC to cancel'
+    });
+
+    input.key(['enter'], async () => {
+      const value = input.getValue();
+      dialog.detach();
       this.screen!.render();
 
-      if (err || !value) return;
+      if (!value || value.trim() === '') return;
 
       try {
-        const currentPath = currentUri.replace(/\/$/, '');
-        const newDirUri = `file://${path.resolve(currentPath, value)}`;
+        // Convert file URI to local path
+        const currentPath = currentUri.startsWith('file://') ? 
+          currentUri.replace('file://', '') : currentUri;
+        const cleanPath = currentPath.replace(/\/$/, '');
+        const newDirPath = path.resolve(cleanPath, value);
+        const newDirUri = `file://${newDirPath}`;
+        
         await this.providerManager.mkdir(newDirUri);
         
         this.showStatus(`Created directory: ${value}`);
@@ -1056,7 +1090,13 @@ Press any key to close this help.
       }
     });
 
-    inputBox.focus();
+    input.key(['escape'], () => {
+      dialog.detach();
+      this.screen!.render();
+    });
+
+    dialog.focus();
+    input.focus();
     this.screen!.render();
   }
 
@@ -1145,7 +1185,16 @@ Press any key to close this help.
       this.showStatus(`Deleting ${itemsToDelete.length} item(s)...`);
       
       for (const itemUri of itemsToDelete) {
-        await this.providerManager.delete(itemUri, true); // recursive delete
+        const item = this.currentPane === 'left' ? 
+          this.leftItems.find(i => i.uri === itemUri) : 
+          this.rightItems.find(i => i.uri === itemUri);
+        
+        if (item) {
+          const itemType = item.isDirectory ? 'directory' : 'file';
+          this.showStatus(`Deleting ${itemType}: ${item.name}...`);
+        }
+        
+        await this.providerManager.delete(itemUri);
       }
 
       this.showStatus(`Successfully deleted ${itemsToDelete.length} item(s)`);

@@ -1,9 +1,11 @@
 import blessed from 'blessed';
 import { ConfigManager, ProviderConfig } from './ConfigManager.js';
+import { CliCredentialManager } from './CliCredentialManager.js';
 
 export class ConfigUI {
   private screen: blessed.Widgets.Screen;
   private configManager: ConfigManager;
+  private cliCredentialManager: CliCredentialManager;
   private mainBox: blessed.Widgets.BoxElement | null = null;
   private providerList: blessed.Widgets.ListElement | null = null;
   private formBox: blessed.Widgets.BoxElement | null = null;
@@ -12,12 +14,16 @@ export class ConfigUI {
   constructor(screen: blessed.Widgets.Screen) {
     this.screen = screen;
     this.configManager = new ConfigManager();
+    this.cliCredentialManager = new CliCredentialManager();
   }
 
   async showConfigMenu(): Promise<void> {
     if (this.mainBox) {
       this.mainBox.detach();
     }
+
+    // Load CLI credentials
+    await this.cliCredentialManager.loadAllCredentials();
 
     // Hide the main TUI elements
     this.hideMainTUI();
@@ -104,8 +110,27 @@ export class ConfigUI {
       this.hideConfigMenu();
     });
 
-    // Configuration details are read-only, no navigation needed
-    // Focus should remain on provider list for navigation
+    // Add action key handlers to formBox
+    this.formBox.key(['e', 'c', 's', 't', 'd', 'a', 'E', 'C', 'S', 'T', 'D', 'A'], (ch, key) => {
+      this.handleKeyPress(ch, key);
+    });
+
+    // Add tab navigation between provider list and form box
+    this.formBox.key(['tab'], () => {
+      if (this.providerList) {
+        this.providerList.focus();
+        this.updateFocusIndicators('providerList');
+        this.screen.render();
+      }
+    });
+
+    this.providerList.key(['tab'], () => {
+      if (this.formBox) {
+        this.formBox.focus();
+        this.updateFocusIndicators('formBox');
+        this.screen.render();
+      }
+    });
 
     // Load providers
     await this.loadProviders();
@@ -141,10 +166,10 @@ export class ConfigUI {
       this.currentProvider = providerConfig;
       await this.showProviderForm();
       
-      // Keep focus on provider list for consistent key handling
-      // The action keys are registered on mainBox, so focus should stay there
-      if (this.providerList) {
-        this.providerList.focus();
+      // Transfer focus to formBox for action key handling
+      if (this.formBox) {
+        this.formBox.focus();
+        this.updateFocusIndicators('formBox');
         this.screen.render();
       }
     });
@@ -156,7 +181,7 @@ export class ConfigUI {
 
     // Handle action keys ONLY on the main configuration box
     // This ensures consistent behavior regardless of focus
-    this.mainBox.key(['e', 'c', 's', 't', 'd', 'E', 'C', 'S', 'T', 'D'], (ch, key) => {
+    this.mainBox.key(['e', 'c', 's', 't', 'd', 'a', 'E', 'C', 'S', 'T', 'D', 'A'], (ch, key) => {
       this.handleKeyPress(ch, key);
     });
 
@@ -229,6 +254,12 @@ export class ConfigUI {
     }
     content += '\n';
 
+    // Show CLI credentials status
+    content += 'CLI Credentials:\n';
+    const cliStatus = this.getCliStatus(provider.scheme);
+    content += `  ${cliStatus.status} ${cliStatus.message}\n`;
+    content += '\n';
+
     // Show validation status
     const validation = await this.configManager.validateProviderConfig(provider.scheme);
     content += 'Validation:\n';
@@ -248,6 +279,9 @@ export class ConfigUI {
     content += '  S - Configure settings\n';
     content += '  T - Test connection\n';
     content += '  D - Delete configuration\n';
+    if (this.hasCliCredentials(provider.scheme)) {
+      content += '  A - Auto-configure from CLI credentials\n';
+    }
     content += '\n';
     content += 'Use ↑↓ to navigate providers, action keys for operations, ESC to close';
 
@@ -269,6 +303,140 @@ export class ConfigUI {
     }
     
     return value;
+  }
+
+  private getCliStatus(scheme: string): {status: string, message: string} {
+    switch (scheme) {
+      case 's3':
+        if (this.cliCredentialManager.hasAwsCredentials()) {
+          return { status: '✓', message: 'AWS CLI credentials available' };
+        }
+        return { status: '✗', message: 'No AWS CLI credentials found' };
+      
+      case 'gcs':
+        if (this.cliCredentialManager.hasGcpCredentials()) {
+          return { status: '✓', message: 'GCP CLI credentials available' };
+        }
+        return { status: '✗', message: 'No GCP CLI credentials found' };
+      
+      case 'az':
+        if (this.cliCredentialManager.hasAzureCredentials()) {
+          return { status: '✓', message: 'Azure CLI credentials available' };
+        }
+        return { status: '✗', message: 'No Azure CLI credentials found' };
+      
+      case 'file':
+        return { status: '✓', message: 'Local file system (no credentials needed)' };
+      
+      case 'aifs':
+        return { status: '?', message: 'AIFS requires manual configuration' };
+      
+      default:
+        return { status: '?', message: 'Unknown provider' };
+    }
+  }
+
+  private hasCliCredentials(scheme: string): boolean {
+    switch (scheme) {
+      case 's3':
+        return this.cliCredentialManager.hasAwsCredentials();
+      case 'gcs':
+        return this.cliCredentialManager.hasGcpCredentials();
+      case 'az':
+        return this.cliCredentialManager.hasAzureCredentials();
+      default:
+        return false;
+    }
+  }
+
+  private updateFocusIndicators(focusedElement: 'providerList' | 'formBox'): void {
+    if (!this.providerList || !this.formBox) return;
+
+    if (focusedElement === 'providerList') {
+      this.providerList.style.border.fg = 'blue';
+      this.formBox.style.border.fg = 'gray';
+    } else {
+      this.providerList.style.border.fg = 'gray';
+      this.formBox.style.border.fg = 'blue';
+    }
+  }
+
+  private async autoConfigureFromCli(): Promise<void> {
+    if (!this.currentProvider) return;
+
+    const scheme = this.currentProvider.scheme;
+    
+    try {
+      let credentials: Record<string, string> = {};
+      
+      switch (scheme) {
+        case 's3':
+          if (this.cliCredentialManager.hasAwsCredentials()) {
+            const awsCreds = this.cliCredentialManager.getCredentials().aws!;
+            credentials = {
+              accessKeyId: awsCreds.accessKeyId,
+              secretAccessKey: awsCreds.secretAccessKey,
+              region: awsCreds.region,
+              bucket: '' // User needs to specify bucket
+            };
+          } else {
+            this.showError('No AWS CLI credentials found');
+            return;
+          }
+          break;
+          
+        case 'gcs':
+          if (this.cliCredentialManager.hasGcpCredentials()) {
+            const gcpCreds = this.cliCredentialManager.getCredentials().gcp!;
+            credentials = {
+              projectId: gcpCreds.projectId,
+              keyFilename: gcpCreds.keyFilename || '',
+              bucket: '' // User needs to specify bucket
+            };
+          } else {
+            this.showError('No GCP CLI credentials found');
+            return;
+          }
+          break;
+          
+        case 'az':
+          if (this.cliCredentialManager.hasAzureCredentials()) {
+            const azureCreds = this.cliCredentialManager.getCredentials().azure!;
+            credentials = {
+              subscriptionId: azureCreds.subscriptionId,
+              tenantId: azureCreds.tenantId,
+              clientId: azureCreds.clientId,
+              containerName: '' // User needs to specify container
+            };
+          } else {
+            this.showError('No Azure CLI credentials found');
+            return;
+          }
+          break;
+          
+        default:
+          this.showError('Auto-configuration not supported for this provider');
+          return;
+      }
+
+      // Save the credentials
+      await this.configManager.setProviderCredentials(scheme, credentials);
+      
+      // Enable the provider
+      await this.configManager.enableProvider(scheme);
+      
+      // Reload current provider to reflect saved state
+      this.currentProvider = await this.configManager.getProviderConfig(scheme);
+      
+      // Reload the main configuration
+      await this.loadProviders();
+      await this.showProviderForm();
+      
+      this.showSuccess('Provider auto-configured from CLI credentials!');
+      
+    } catch (error) {
+      this.showError(`Auto-configuration failed: ${(error as Error).message}`);
+    }
   }
 
   public hideConfigMenu(): void {
@@ -327,12 +495,11 @@ export class ConfigUI {
   // Handle key presses in the configuration UI
   handleKeyPress(_ch: string, key: any): boolean {
     // Validate that we have the required components
-    if (!this.mainBox || !this.currentProvider || !this.providerList) {
+    if (!this.mainBox || !this.currentProvider) {
       return false;
     }
 
     // Process keys if we're in the configuration UI (mainBox is visible)
-    // The keys are registered on mainBox, so they should work when mainBox is active
     if (!this.mainBox.visible) {
       return false;
     }
@@ -355,6 +522,9 @@ export class ConfigUI {
         return true;
       case 'd':
         this.deleteConfiguration();
+        return true;
+      case 'a':
+        this.autoConfigureFromCli();
         return true;
     }
 
@@ -730,9 +900,18 @@ export class ConfigUI {
 
   private async testS3Provider(): Promise<{success: boolean, message: string}> {
     try {
+      // First try CLI credentials
+      if (this.cliCredentialManager.hasAwsCredentials()) {
+        const cliTest = await this.cliCredentialManager.testAwsConnection();
+        if (cliTest.success) {
+          return { success: true, message: 'S3 connection successful (using AWS CLI credentials)' };
+        }
+      }
+
+      // Fallback to configured credentials
       const provider = await this.configManager.getProviderConfig('s3');
       if (!provider) {
-        return { success: false, message: 'S3 provider not configured' };
+        return { success: false, message: 'S3 provider not configured and no AWS CLI credentials' };
       }
 
       const { S3Client, HeadBucketCommand } = await import('@aws-sdk/client-s3');
@@ -750,7 +929,7 @@ export class ConfigUI {
       });
 
       await client.send(command);
-      return { success: true, message: 'S3 connection successful' };
+      return { success: true, message: 'S3 connection successful (using configured credentials)' };
     } catch (error) {
       return { success: false, message: `S3 test failed: ${(error as Error).message}` };
     }
@@ -758,9 +937,18 @@ export class ConfigUI {
 
   private async testGCSProvider(): Promise<{success: boolean, message: string}> {
     try {
+      // First try CLI credentials
+      if (this.cliCredentialManager.hasGcpCredentials()) {
+        const cliTest = await this.cliCredentialManager.testGcpConnection();
+        if (cliTest.success) {
+          return { success: true, message: 'GCS connection successful (using GCP CLI credentials)' };
+        }
+      }
+
+      // Fallback to configured credentials
       const provider = await this.configManager.getProviderConfig('gcs');
       if (!provider) {
-        return { success: false, message: 'GCS provider not configured' };
+        return { success: false, message: 'GCS provider not configured and no GCP CLI credentials' };
       }
 
       // For GCS, we would typically test with @google-cloud/storage
@@ -777,9 +965,18 @@ export class ConfigUI {
 
   private async testAzureProvider(): Promise<{success: boolean, message: string}> {
     try {
+      // First try CLI credentials
+      if (this.cliCredentialManager.hasAzureCredentials()) {
+        const cliTest = await this.cliCredentialManager.testAzureConnection();
+        if (cliTest.success) {
+          return { success: true, message: 'Azure connection successful (using Azure CLI credentials)' };
+        }
+      }
+
+      // Fallback to configured credentials
       const provider = await this.configManager.getProviderConfig('az');
       if (!provider) {
-        return { success: false, message: 'Azure provider not configured' };
+        return { success: false, message: 'Azure provider not configured and no Azure CLI credentials' };
       }
 
       // For Azure, we would typically test with @azure/storage-blob

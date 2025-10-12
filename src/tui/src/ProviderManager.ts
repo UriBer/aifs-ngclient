@@ -178,13 +178,40 @@ export class ProviderManager {
     const destPath = destUri.startsWith('file://') ? destUri.replace('file://', '') : destUri;
     
     try {
-      // Ensure destination directory exists
-      const destDir = path.dirname(destPath);
-      await fs.mkdir(destDir, { recursive: true });
+      const srcStats = await fs.stat(srcPath);
       
-      await fs.copyFile(srcPath, destPath);
+      if (srcStats.isDirectory()) {
+        // Copy directory recursively
+        await this.copyDirectory(srcPath, destPath);
+      } else {
+        // Copy file
+        const destDir = path.dirname(destPath);
+        await fs.mkdir(destDir, { recursive: true });
+        await fs.copyFile(srcPath, destPath);
+      }
     } catch (error) {
       throw new Error(`Failed to copy ${srcPath} to ${destPath}: ${(error as Error).message}`);
+    }
+  }
+
+  private async copyDirectory(srcDir: string, destDir: string): Promise<void> {
+    // Create destination directory
+    await fs.mkdir(destDir, { recursive: true });
+    
+    // Read source directory contents
+    const entries = await fs.readdir(srcDir, { withFileTypes: true });
+    
+    for (const entry of entries) {
+      const srcPath = path.join(srcDir, entry.name);
+      const destPath = path.join(destDir, entry.name);
+      
+      if (entry.isDirectory()) {
+        // Recursively copy subdirectory
+        await this.copyDirectory(srcPath, destPath);
+      } else {
+        // Copy file
+        await fs.copyFile(srcPath, destPath);
+      }
     }
   }
 
@@ -193,28 +220,39 @@ export class ProviderManager {
     const destPath = destUri.startsWith('file://') ? destUri.replace('file://', '') : destUri;
     
     try {
-      // Ensure destination directory exists
-      const destDir = path.dirname(destPath);
-      await fs.mkdir(destDir, { recursive: true });
+      const srcStats = await fs.stat(srcPath);
       
-      await fs.rename(srcPath, destPath);
+      if (srcStats.isDirectory()) {
+        // Move directory
+        const destDir = path.dirname(destPath);
+        await fs.mkdir(destDir, { recursive: true });
+        await fs.rename(srcPath, destPath);
+      } else {
+        // Move file
+        const destDir = path.dirname(destPath);
+        await fs.mkdir(destDir, { recursive: true });
+        await fs.rename(srcPath, destPath);
+      }
     } catch (error) {
       throw new Error(`Failed to move ${srcPath} to ${destPath}: ${(error as Error).message}`);
     }
   }
 
-  async delete(uri: string, recursive?: boolean): Promise<void> {
+  async delete(uri: string): Promise<void> {
     const localPath = uri.startsWith('file://') ? uri.replace('file://', '') : uri;
     
-    if (recursive) {
-      await fs.rm(localPath, { recursive: true, force: true });
-    } else {
+    try {
       const stats = await fs.stat(localPath);
+      
       if (stats.isDirectory()) {
-        await fs.rmdir(localPath);
+        // For directories, always use recursive deletion
+        await fs.rm(localPath, { recursive: true, force: true });
       } else {
+        // For files, use unlink
         await fs.unlink(localPath);
       }
+    } catch (error) {
+      throw new Error(`Failed to delete ${localPath}: ${(error as Error).message}`);
     }
   }
 

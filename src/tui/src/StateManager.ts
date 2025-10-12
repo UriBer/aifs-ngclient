@@ -33,7 +33,6 @@ export class StateManager {
       // Check if state is not too old (e.g., within 7 days)
       const sevenDaysAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
       if (this.state.lastUsed < sevenDaysAgo) {
-        console.log('State is too old, using defaults');
         return null;
       }
 
@@ -43,12 +42,10 @@ export class StateManager {
         await fs.access(this.state.rightUri);
         return this.state;
       } catch {
-        console.log('Saved directories no longer exist, using defaults');
         return null;
       }
     } catch (error) {
       // File doesn't exist or is invalid, use defaults
-      console.log('No saved state found, using defaults');
       return null;
     }
   }
