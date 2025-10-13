@@ -128,7 +128,7 @@ The TUI can be configured through a JSON file or environment variables:
 
 ### Building from Source
 ```bash
-git clone https://github.com/aifs-ngclient/aifs-commander-tui.git
+git clone https://github.com/aifs-ngclient/aifs-commander.git
 cd aifs-commander-tui
 npm install
 npm run build
@@ -191,6 +191,6 @@ MIT License - see LICENSE file for details.
 
 ## Support
 
-- GitHub Issues: https://github.com/aifs-ngclient/aifs-commander-tui/issues
-- Documentation: https://github.com/aifs-ngclient/aifs-commander-tui#readme
+- GitHub Issues: https://github.com/aifs-ngclient/aifs-commander/issues
+- Documentation: https://github.com/aifs-ngclient/aifs-commander#readme
 - Email: team@aifs.dev

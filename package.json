@@ -3,9 +3,6 @@
   "version": "0.1.0",
   "description": "Cross-Cloud Object-Management Client with AIFS support",
   "main": "dist/main/main/main.js",
-  "workspaces": [
-    "packages/*"
-  ],
   "scripts": {
     "start": "electron .",
     "dev": "concurrently \"npm run dev:renderer\" \"npm run dev:main\"",
@@ -41,6 +38,14 @@
     "email": "team@even-derech-it.com"
   },
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/UriBer/aifs-ngclient.git"
+  },
+  "bugs": {
+    "url": "https://github.com/UriBer/aifs-ngclient/issues"
+  },
+  "homepage": "https://github.com/UriBer/aifs-ngclient#readme",
   "devDependencies": {
     "@types/jest": "^29.5.0",
     "@types/minimatch": "^6.0.0",
