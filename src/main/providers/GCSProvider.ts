@@ -1,4 +1,4 @@
-import { Storage, Bucket, File } from '@google-cloud/storage';
+import { Storage } from '@google-cloud/storage';
 import { createReadStream, createWriteStream } from 'fs';
 import { pipeline } from 'stream/promises';
 import path from 'path';
@@ -69,7 +69,7 @@ export class GCSProvider implements IObjectStore {
     const bucket = this.storage.bucket(bucketName);
     
     try {
-      const [files, , , apiResponse] = await bucket.getFiles({
+      const [files, , apiResponse] = await bucket.getFiles({
         prefix: prefix.endsWith('/') ? prefix : `${prefix}/`,
         delimiter: opts?.delimiter || '/',
         maxResults: opts?.pageSize || 1000,
@@ -79,7 +79,7 @@ export class GCSProvider implements IObjectStore {
       const items: Obj[] = [];
       
       // Process directories (common prefixes)
-      if (apiResponse.prefixes) {
+      if (apiResponse?.prefixes) {
         for (const dirPrefix of apiResponse.prefixes) {
           const name = dirPrefix.replace(prefix, '').replace(/\/$/, '');
           if (name) {

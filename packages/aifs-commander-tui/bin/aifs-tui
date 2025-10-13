@@ -1,0 +1,57 @@
+#!/usr/bin/env node
+
+/**
+ * AIFS Commander TUI - Terminal User Interface
+ * Cross-cloud file manager with support for local, S3, GCS, Azure, and AIFS storage
+ */
+
+const { TuiApplication } = require('../dist/index.js');
+
+// Handle command line arguments
+const args = process.argv.slice(2);
+const options = {
+  help: args.includes('--help') || args.includes('-h'),
+  version: args.includes('--version') || args.includes('-v'),
+  config: args.includes('--config') ? args[args.indexOf('--config') + 1] : null
+};
+
+if (options.help) {
+  console.log(`
+AIFS Commander TUI - Terminal User Interface
+
+Usage: aifs-tui [options]
+
+Options:
+  -h, --help          Show this help message
+  -v, --version       Show version information
+  --config <path>     Use custom configuration file
+
+Examples:
+  aifs-tui                    # Start TUI with default settings
+  aifs-tui --config ./my-config.json  # Use custom configuration
+
+For more information, visit: https://github.com/aifs-ngclient/aifs-commander-tui
+`);
+  process.exit(0);
+}
+
+if (options.version) {
+  const pkg = require('../package.json');
+  console.log(pkg.version);
+  process.exit(0);
+}
+
+// Start the TUI application
+try {
+  const app = new TuiApplication({
+    configPath: options.config
+  });
+  
+  app.start().catch(error => {
+    console.error('Failed to start AIFS Commander TUI:', error.message);
+    process.exit(1);
+  });
+} catch (error) {
+  console.error('Error initializing AIFS Commander TUI:', error.message);
+  process.exit(1);
+}

@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "description": "Cross-Cloud Object-Management Client with AIFS support",
   "main": "dist/main/main/main.js",
+  "workspaces": [
+    "packages/*"
+  ],
   "scripts": {
     "start": "electron .",
     "dev": "concurrently \"npm run dev:renderer\" \"npm run dev:main\"",
@@ -11,6 +14,15 @@
     "build": "npm run build:main && npm run build:renderer",
     "build:main": "tsc -p tsconfig.main.json",
     "build:renderer": "vite build",
+    "build:tui": "cd src/tui && npm run build",
+    "build:all": "npm run build && npm run build:tui",
+    "build:packages": "npm run build:tui",
+    "dist": "npm run build:all && electron-builder",
+    "dist:mac": "npm run build:all && electron-builder --mac",
+    "dist:win": "npm run build:all && electron-builder --win",
+    "dist:linux": "npm run build:all && electron-builder --linux",
+    "dist:all": "npm run build:all && electron-builder --mac --win --linux",
+    "pack": "npm run build:all && electron-builder --dir",
     "lint": "eslint --ext .ts,.tsx .",
     "test": "jest",
     "test:aifs": "ts-node --transpile-only --project tsconfig.test.json scripts/test-aifs-provider.ts",
@@ -24,7 +36,10 @@
     "azure",
     "electron"
   ],
-  "author": "",
+  "author": {
+    "name": "AIFS Team",
+    "email": "team@even-derech-it.com"
+  },
   "license": "MIT",
   "devDependencies": {
     "@types/jest": "^29.5.0",
@@ -60,5 +75,71 @@
     "minimatch": "^10.0.3",
     "react": "^18.2.0",
     "react-dom": "^18.2.0"
+  },
+  "build": {
+    "appId": "com.aifs.client",
+    "productName": "AIFS Commander",
+    "directories": {
+      "output": "dist-electron"
+    },
+    "files": [
+      "dist/**/*",
+      "src/tui/dist/**/*",
+      "src/main/proto/**/*",
+      "node_modules/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "src/tui/dist",
+        "to": "tui",
+        "filter": ["**/*"]
+      }
+    ],
+    "mac": {
+      "category": "public.app-category.utilities",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": ["x64", "arm64"]
+        },
+        {
+          "target": "zip",
+          "arch": ["x64", "arm64"]
+        }
+      ],
+      "icon": "assets/icon.icns"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64", "ia32"]
+        },
+        {
+          "target": "portable",
+          "arch": ["x64", "ia32"]
+        }
+      ],
+      "icon": "assets/icon.ico"
+    },
+    "linux": {
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": ["x64", "arm64"]
+        },
+        {
+          "target": "deb",
+          "arch": ["x64", "arm64"]
+        }
+      ],
+      "icon": "assets/icon.png",
+      "category": "Utility"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
   }
 }

@@ -1,0 +1,45 @@
+{
+  "name": "aifs-commander-tui",
+  "version": "1.0.0",
+  "description": "Terminal User Interface for AIFS Commander - A cross-cloud file manager",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "aifs-tui": "./bin/aifs-tui"
+  },
+  "files": [
+    "dist/",
+    "bin/",
+    "README.md"
+  ],
+  "scripts": {
+    "start": "node dist/index.js"
+  },
+  "keywords": [
+    "tui",
+    "terminal",
+    "file-manager",
+    "cross-cloud",
+    "aifs",
+    "commander",
+    "blessed"
+  ],
+  "author": "AIFS Team <team@aifs.dev>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/aifs-ngclient/aifs-commander-tui.git"
+  },
+  "bugs": {
+    "url": "https://github.com/aifs-ngclient/aifs-commander-tui/issues"
+  },
+  "homepage": "https://github.com/aifs-ngclient/aifs-commander-tui#readme",
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "dependencies": {
+    "blessed": "^0.1.81",
+    "inquirer": "^9.2.12",
+    "fs-extra": "^11.1.1"
+  }
+}

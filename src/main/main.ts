@@ -34,10 +34,18 @@ function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
+    show: false, // Don't show until ready
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false
+    }
+  });
+
+  // Show window when ready
+  mainWindow.once('ready-to-show', () => {
+    if (mainWindow) {
+      mainWindow.show();
     }
   });
 
@@ -48,7 +56,11 @@ function createWindow() {
     mainWindow.webContents.openDevTools();
   } else {
     // In production, load from the built files
-    mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
+    const rendererPath = path.join(__dirname, 'dist/renderer/index.html');
+    console.log('Loading renderer from:', rendererPath);
+    mainWindow.loadFile(rendererPath).catch(err => {
+      console.error('Failed to load renderer:', err);
+    });
   }
 
   mainWindow.on('closed', () => {

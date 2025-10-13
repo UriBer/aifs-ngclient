@@ -1,4 +1,4 @@
-import { BlobServiceClient, ContainerClient, BlobClient, BlobDownloadResponseParsed } from '@azure/storage-blob';
+import { BlobServiceClient, StorageSharedKeyCredential } from '@azure/storage-blob';
 import { createReadStream, createWriteStream } from 'fs';
 import { pipeline } from 'stream/promises';
 import path from 'path';
@@ -32,14 +32,9 @@ export class AzureProvider implements IObjectStore {
       this.blobServiceClient = BlobServiceClient.fromConnectionString(config.connectionString);
     } else if (config?.accountName) {
       const accountUrl = `https://${config.accountName}.blob.core.windows.net`;
-      this.blobServiceClient = new BlobServiceClient(accountUrl, {
-        credential: config.accountKey ? {
-          accountName: config.accountName,
-          accountKey: config.accountKey
-        } : undefined,
-        // If SAS token is provided, it will be used for authentication
-        ...(config.sasToken && { credential: undefined })
-      });
+      this.blobServiceClient = new BlobServiceClient(accountUrl, 
+        config.accountKey ? new StorageSharedKeyCredential(config.accountName, config.accountKey) : undefined
+      );
     } else {
       // Use default Azure credentials
       this.blobServiceClient = new BlobServiceClient(
@@ -104,7 +99,7 @@ export class AzureProvider implements IObjectStore {
         maxPageSize: opts?.pageSize || 1000
       });
       
-      const { value: page, done } = await iterator.next();
+      const { value: page } = await iterator.next();
       
       if (page) {
         // Process blobs
@@ -127,7 +122,7 @@ export class AzureProvider implements IObjectStore {
               blob.properties.contentLength || 0,
               blob.properties.lastModified,
               blob.properties.etag?.replace(/"/g, ''), // Remove quotes from ETag
-              blob.properties.contentCrc64, // Use CRC64 as checksum
+              blob.properties.contentMD5 ? Buffer.from(blob.properties.contentMD5).toString('base64') : undefined, // Use MD5 as checksum
               blob.metadata // Include Azure metadata
             ));
           }
@@ -194,7 +189,7 @@ export class AzureProvider implements IObjectStore {
           properties.contentLength || 0,
           properties.lastModified,
           properties.etag?.replace(/"/g, ''), // Remove quotes from ETag
-          properties.contentCrc64, // Use CRC64 as checksum
+          properties.contentMD5 ? Buffer.from(properties.contentMD5).toString('base64') : undefined, // Use MD5 as checksum
           properties.metadata // Include Azure metadata
         );
       } catch (error) {
@@ -298,7 +293,7 @@ export class AzureProvider implements IObjectStore {
         stats.size,
         properties.lastModified,
         properties.etag?.replace(/"/g, ''), // Remove quotes from ETag
-        properties.contentCrc64, // Use CRC64 as checksum
+        properties.contentMD5 ? Buffer.from(properties.contentMD5).toString('base64') : undefined, // Use MD5 as checksum
         opts?.metadata
       );
     } catch (error) {
@@ -327,7 +322,7 @@ export class AzureProvider implements IObjectStore {
             maxPageSize: 2
           };
           
-          const iterator = containerClient.listBlobsFlat(listOptions).byPage(listOptions);
+          const iterator = containerClient.listBlobsFlat(listOptions).byPage();
           const { value: page } = await iterator.next();
           
           if (page && page.segment.blobItems.length > 1) {
@@ -339,7 +334,7 @@ export class AzureProvider implements IObjectStore {
             prefix: blobName
           };
           
-          const iterator = containerClient.listBlobsFlat(listOptions).byPage(listOptions);
+          const iterator = containerClient.listBlobsFlat(listOptions).byPage();
           
           for await (const page of iterator) {
             for (const blob of page.segment.blobItems) {
@@ -389,14 +384,14 @@ export class AzureProvider implements IObjectStore {
       const copyResponse = await destBlobClient.syncCopyFromURL(srcBlobClient.url);
       
       // Poll for copy completion
-      let copyStatus = copyResponse.copyStatus;
+      let copyStatus: string | undefined = copyResponse.copyStatus;
       while (copyStatus === 'pending') {
         await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second
         const properties = await destBlobClient.getProperties();
         copyStatus = properties.copyStatus;
       }
       
-      if (copyStatus !== 'success') {
+      if (copyStatus && copyStatus !== 'success') {
         throw new Error(`Copy operation failed with status: ${copyStatus}`);
       }
       
@@ -410,7 +405,7 @@ export class AzureProvider implements IObjectStore {
         properties.contentLength || 0,
         properties.lastModified,
         properties.etag?.replace(/"/g, ''), // Remove quotes from ETag
-        properties.contentCrc64, // Use CRC64 as checksum
+        properties.contentMD5 ? Buffer.from(properties.contentMD5).toString('base64') : undefined, // Use MD5 as checksum
         properties.metadata // Include Azure metadata
       );
     } catch (error) {

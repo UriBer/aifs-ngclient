@@ -29,7 +29,9 @@ export class AifsProvider implements IObjectStore {
     this.token = config.token;
     
     // Load the proto file
-    const protoPath = path.resolve(__dirname, '../proto/aifs_api.proto');
+    // __dirname is dist/main/main/providers
+    // Go up 4 levels to project/asar root (../../../../), then to src/main/proto/
+    const protoPath = path.resolve(__dirname, '../../../../src/main/proto/aifs_api.proto');
     const packageDefinition = protoLoader.loadSync(protoPath, {
       keepCase: true,
       longs: String,
