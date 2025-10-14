@@ -44,6 +44,13 @@ export class CliCredentialManager {
     //   azure: !!this.credentials.azure
     // });
     
+    // if (this.credentials.aws) {
+    //   console.log('AWS CLI credentials found:', {
+    //     accessKeyId: this.credentials.aws.accessKeyId?.substring(0, 8) + '...',
+    //     region: this.credentials.aws.region
+    //   });
+    // }
+    
     return this.credentials;
   }
 

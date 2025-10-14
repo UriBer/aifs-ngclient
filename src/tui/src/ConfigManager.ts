@@ -5,6 +5,7 @@ import * as os from 'os';
 import * as crypto from 'crypto';
 
 export interface ProviderConfig {
+  id: string;  // Add unique identifier
   name: string;
   scheme: string;
   enabled: boolean;
@@ -79,6 +80,24 @@ export class ConfigManager {
         throw new Error('Invalid config structure');
       }
       
+      // Migration: Add IDs to providers that don't have them
+      let needsSave = false;
+      config.providers = config.providers.map(provider => {
+        if (!provider.id) {
+          needsSave = true;
+          return {
+            ...provider,
+            id: `${provider.scheme}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+          };
+        }
+        return provider;
+      });
+      
+      // Save migrated config
+      if (needsSave) {
+        await this.saveConfig(config);
+      }
+      
       return config;
     } catch (error) {
       // Return default config if file doesn't exist or is corrupted
@@ -107,6 +126,7 @@ export class ConfigManager {
     return {
       providers: [
         {
+          id: 'file-default',
           name: 'Local File System',
           scheme: 'file',
           enabled: true,
@@ -114,6 +134,7 @@ export class ConfigManager {
           settings: {}
         },
         {
+          id: 's3-default',
           name: 'Amazon S3',
           scheme: 's3',
           enabled: false,
@@ -129,6 +150,7 @@ export class ConfigManager {
           }
         },
         {
+          id: 'gcs-default',
           name: 'Google Cloud Storage',
           scheme: 'gcs',
           enabled: false,
@@ -142,6 +164,7 @@ export class ConfigManager {
           }
         },
         {
+          id: 'az-default',
           name: 'Azure Blob Storage',
           scheme: 'az',
           enabled: false,
@@ -156,6 +179,7 @@ export class ConfigManager {
           }
         },
         {
+          id: 'aifs-default',
           name: 'AIFS',
           scheme: 'aifs',
           enabled: false,
@@ -179,12 +203,43 @@ export class ConfigManager {
     return config.providers.find(p => p.scheme === scheme) || null;
   }
 
+  async getProviderConfigById(id: string): Promise<ProviderConfig | null> {
+    const config = await this.loadConfig();
+    return config.providers.find(p => p.id === id) || null;
+  }
+
   async updateProviderConfig(scheme: string, updates: Partial<ProviderConfig>): Promise<void> {
     const config = await this.loadConfig();
     const providerIndex = config.providers.findIndex(p => p.scheme === scheme);
     
     if (providerIndex === -1) {
       throw new Error(`Provider ${scheme} not found`);
+    }
+    
+    // Merge with existing configuration, especially credentials
+    const existingProvider = config.providers[providerIndex];
+    config.providers[providerIndex] = {
+      ...existingProvider,
+      ...updates,
+      credentials: {
+        ...existingProvider.credentials,
+        ...(updates.credentials || {})
+      },
+      settings: {
+        ...existingProvider.settings,
+        ...(updates.settings || {})
+      }
+    };
+    
+    await this.saveConfig(config);
+  }
+
+  async updateProviderConfigById(id: string, updates: Partial<ProviderConfig>): Promise<void> {
+    const config = await this.loadConfig();
+    const providerIndex = config.providers.findIndex(p => p.id === id);
+    
+    if (providerIndex === -1) {
+      throw new Error(`Provider ${id} not found`);
     }
     
     // Merge with existing configuration, especially credentials
@@ -229,6 +284,12 @@ export class ConfigManager {
   async deleteProviderConfig(scheme: string): Promise<void> {
     const config = await this.loadConfig();
     config.providers = config.providers.filter(p => p.scheme !== scheme);
+    await this.saveConfig(config);
+  }
+
+  async deleteProviderConfigById(id: string): Promise<void> {
+    const config = await this.loadConfig();
+    config.providers = config.providers.filter(p => p.id !== id);
     await this.saveConfig(config);
   }
 

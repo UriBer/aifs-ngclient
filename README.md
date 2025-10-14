@@ -9,7 +9,7 @@ A cross-cloud object management client with AIFS support, featuring both a moder
 - **AWS S3**: Full S3 bucket management
 - **Google Cloud Storage**: GCS bucket operations
 - **Azure Blob Storage**: Azure storage management
-- **AIFS**: AI-centric file system with gRPC API
+- **AIFS**: AI-centric file system with gRPC API  - https://github.com/UriBer/AIFS.git
 
 ### Dual Interface
 - **Electron GUI**: Modern desktop application with React/TypeScript
@@ -25,15 +25,8 @@ A cross-cloud object management client with AIFS support, featuring both a moder
 
 ## 📦 Installation
 
-### Option 1: Pre-built Distributions
 
-Download the latest release for your platform:
-
-- **macOS**: `AIFS Commander.dmg` (Intel & ARM64)
-- **Windows**: `AIFS Commander Setup.exe` (x64)
-- **Linux**: `aifs-commander.deb` (x64)
-
-### Option 2: NPM Package (TUI Only) - Coming Soon
+### Option 1: NPM Package (TUI Only) - Coming Soon
 
 The Terminal User Interface will be available as a global npm package:
 
@@ -45,7 +38,7 @@ aifs-tui --help
 
 **Note**: The npm package is ready for publishing but not yet published.
 
-### Option 3: Build from Source
+### Option 2: Build from Source
 
 ```bash
 # Clone the repository
@@ -65,6 +58,14 @@ npm start
 npm run build:tui
 cd src/tui && npm start
 ```
+
+### Option 3: Pre-built Distributions (Comming soon)
+
+Download the latest release for your platform:
+
+- **macOS**: `AIFS Commander.dmg` (Intel & ARM64)
+- **Windows**: `AIFS Commander Setup.exe` (x64)
+- **Linux**: `aifs-commander.deb` (x64)
 
 ## 🖥️ Usage
 
@@ -158,6 +159,7 @@ This will automatically:
 
 4. **AIFS**:
    - Configure gRPC endpoint and credentials
+   - Run AIFS container by pulling it from docker https://hub.docker.com/r/uriber/aifs
 
 ### Configuration Files
 

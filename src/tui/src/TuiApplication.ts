@@ -35,6 +35,8 @@ export class TuiApplication {
   private rightProvider: string = 'file';
   private providerMenu: blessed.Widgets.ListElement | null = null;
   private dividerPosition: number = 50; // Percentage of screen width
+  private overlayMode: boolean = true; // Toggle between overlay and full screen
+  private terminalOverlayActive: boolean = false;
 
   constructor(_options?: TuiApplicationOptions) {
     this.providerManager = new ProviderManager();
@@ -64,6 +66,7 @@ export class TuiApplication {
       }
 
     this.initializeScreen();
+    this.clearScreen();
     this.initializeLayout();
     this.setupEventHandlers();
       
@@ -79,8 +82,12 @@ export class TuiApplication {
     // Load initial directories
     await this.loadDirectory('left', this.leftUri, this.leftSelected);
     await this.loadDirectory('right', this.rightUri, this.rightSelected);
-      
-      this.screen!.render();
+    
+    // Create terminal overlay after all debug messages are written
+    this.createTerminalOverlay();
+    
+    // Force complete screen render
+    this.screen!.render();
       
     } catch (error) {
       console.error('Failed to start TUI:', error);
@@ -92,6 +99,12 @@ export class TuiApplication {
     this.screen = blessed.screen({
       smartCSR: true,
       title: 'AIFS Commander TUI',
+      fullUnicode: true,
+      dockBorders: true,
+      autoPadding: true,
+      warnings: false,
+      fastCSR: true,
+      sendFocus: true,
       cursor: {
         artificial: true,
         shape: 'block',
@@ -99,6 +112,10 @@ export class TuiApplication {
         color: 'black'
       }
     });
+
+    // Always clear screen on startup
+    process.stdout.write('\x1b[2J\x1b[H');
+    this.screen.render();
 
     this.screen.on('resize', () => {
       this.handleResize();
@@ -108,6 +125,48 @@ export class TuiApplication {
       this.quit();
     });
   }
+
+  private clearScreen(): void {
+    if (!this.screen) return;
+    
+    // Just clear and render - overlay handles visibility
+    process.stdout.write('\x1b[2J\x1b[H');
+    this.screen.render();
+  }
+
+  private createTerminalOverlay(): void {
+    if (this.terminalOverlayActive) return;
+    
+    // Don't interfere with blessed.js - just mark as active
+    this.terminalOverlayActive = true;
+  }
+
+  private removeTerminalOverlay(): void {
+    if (!this.terminalOverlayActive) return;
+    
+    // Reset terminal attributes
+    process.stdout.write('\x1b[0m'); // Reset all attributes
+    process.stdout.write('\x1b[2J\x1b[H'); // Clear screen
+    this.terminalOverlayActive = false;
+  }
+
+  private toggleOverlayMode(): void {
+    this.overlayMode = !this.overlayMode;
+    
+    if (this.overlayMode) {
+      // State 3: Solid overlay mode - cover terminal text, show TUI
+      this.createTerminalOverlay();
+      this.showStatus('Overlay mode: Terminal hidden (F12 to show)');
+    } else {
+      // State 2: Transparent mode - hide overlay to show terminal
+      this.removeTerminalOverlay();
+      this.showStatus('Transparent mode: Terminal visible (F12 to hide)');
+    }
+    
+    // Force complete screen redraw
+    this.screen!.render();
+  }
+
 
   private initializeLayout(): void {
     if (!this.screen) return;
@@ -229,6 +288,11 @@ export class TuiApplication {
       this.quit();
     });
 
+    // F12 to toggle overlay mode
+    this.screen.key(['f12'], () => {
+      this.toggleOverlayMode();
+    });
+
     // File operations
     this.screen.key(['f5'], () => {
       this.handleCopy();
@@ -296,14 +360,26 @@ export class TuiApplication {
 
   private async loadDirectory(pane: PaneType, uri: string, selectedIndex: number = 0): Promise<void> {
     try {
-      // Convert local path to file URI if needed
-      const fileUri = uri.startsWith('file://') ? uri : `file://${path.resolve(uri)}`;
+      console.log(`Loading directory for ${pane} pane: ${uri}`);
       
-      const result = await this.providerManager.list(fileUri);
+      // Convert local path to file URI only if it's a local path
+      let finalUri = uri;
+      if (!uri.includes('://') && !uri.startsWith('file://')) {
+        // It's a local path, convert to file URI
+        finalUri = `file://${path.resolve(uri)}`;
+      }
+      
+      console.log(`Calling providerManager.list with URI: ${finalUri}`);
+      const result = await this.providerManager.list(finalUri);
+      console.log(`Received ${result.items.length} items from provider`);
+      
       const items = result.items;
       const paneList = pane === 'left' ? this.leftPane : this.rightPane;
       
-      if (!paneList) return;
+      if (!paneList) {
+        console.error(`Pane list not found for ${pane}`);
+        return;
+      }
       
       paneList.clearItems();
       
@@ -355,7 +431,9 @@ export class TuiApplication {
       this.updateStatus();
       
     } catch (error) {
+      console.error(`Error loading directory ${uri}:`, error);
       this.showError(`Failed to load directory: ${(error as Error).message}`);
+      throw error; // Re-throw to be handled by caller
     }
   }
 
@@ -388,7 +466,7 @@ export class TuiApplication {
         selectedIndex: index
       });
       
-      const newUri = path.join(uri, selectedItem.name);
+      const newUri = this.joinUri(uri, selectedItem.name);
       await this.loadDirectory(pane, newUri, 0); // Start at top of new directory
     } else {
       // For files, open with default application
@@ -524,21 +602,41 @@ export class TuiApplication {
       
       // Update provider availability based on configuration
       for (const provider of config.providers) {
-        this.providerManager.setProviderAvailability(provider.scheme, provider.enabled);
+        if (provider.enabled) {
+          // Check if provider has valid credentials
+          const hasCredentials = Object.keys(provider.credentials).length > 0;
+          this.providerManager.setProviderAvailable(provider.scheme, hasCredentials);
+          
+          if (hasCredentials) {
+            console.log(`✅ Provider ${provider.name} (${provider.scheme}) is available`);
+          } else {
+            console.log(`❌ Provider ${provider.name} (${provider.scheme}) has no credentials`);
+          }
+        } else {
+          this.providerManager.setProviderAvailable(provider.scheme, false);
+        }
       }
     } catch (error) {
       console.warn('Failed to load provider configuration:', (error as Error).message);
     }
   }
 
-  private async autoConfigureProvidersFromCli(): Promise<void> {
+  public async autoConfigureProvidersFromCli(): Promise<void> {
     try {
+      console.log('🔧 Starting auto-configuration from CLI...');
+      
       const cliManager = new CliCredentialManager();
       await cliManager.loadAllCredentials();
       const cliCreds = cliManager.getCredentials();
-      
+
+      console.log('🔍 CLI Credentials detected:');
+      console.log('  AWS:', cliManager.hasAwsCredentials());
+      console.log('  GCP:', cliManager.hasGcpCredentials());
+      console.log('  Azure:', cliManager.hasAzureCredentials());
+
       // Auto-configure AWS S3 - Create separate config
       if (cliManager.hasAwsCredentials() && cliCreds.aws) {
+        console.log('📦 Auto-configuring AWS S3...');
         const configName = `AWS S3 (${cliCreds.aws.region || 'default'})`;
         await this.createNewProviderConfig('s3', configName, {
           accessKeyId: cliCreds.aws.accessKeyId,
@@ -546,20 +644,28 @@ export class TuiApplication {
           region: cliCreds.aws.region || 'us-east-1',
           bucket: 'default-bucket'
         });
+        console.log('✅ AWS S3 auto-configured');
+      } else {
+        console.log('❌ AWS credentials not available');
       }
       
       // Auto-configure GCP - Create separate config
       if (cliManager.hasGcpCredentials() && cliCreds.gcp) {
+        console.log('📦 Auto-configuring GCP...');
         const configName = `Google Cloud Storage (${cliCreds.gcp.projectId})`;
         await this.createNewProviderConfig('gcs', configName, {
           projectId: cliCreds.gcp.projectId,
           keyFilename: cliCreds.gcp.keyFilename || '',
           bucket: `${cliCreds.gcp.projectId}-bucket`
         });
+        console.log('✅ GCP auto-configured');
+      } else {
+        console.log('❌ GCP credentials not available');
       }
       
       // Auto-configure Azure - Create separate config
       if (cliManager.hasAzureCredentials() && cliCreds.azure) {
+        console.log('📦 Auto-configuring Azure...');
         const configName = `Azure Blob Storage (${cliCreds.azure.subscriptionId?.substring(0, 8)}...)`;
         await this.createNewProviderConfig('az', configName, {
           subscriptionId: cliCreds.azure.subscriptionId,
@@ -567,10 +673,14 @@ export class TuiApplication {
           clientId: cliCreds.azure.clientId,
           containerName: 'default-container'
         });
+        console.log('✅ Azure auto-configured');
+      } else {
+        console.log('❌ Azure credentials not available');
       }
       
       // Reload configuration after auto-config
       await this.loadProviderConfiguration();
+      console.log('🎉 Auto-configuration completed');
     } catch (error) {
       console.warn('Failed to auto-configure from CLI:', (error as Error).message);
     }
@@ -578,26 +688,34 @@ export class TuiApplication {
 
   private async createNewProviderConfig(scheme: string, name: string, credentials: Record<string, string>): Promise<void> {
     try {
+      console.log(`🔧 Creating provider config: ${scheme} - ${name}`);
+      
       const config = await this.configManager.loadConfig();
       
-      // Check if a config with this name already exists
-      const existingIndex = config.providers.findIndex(p => p.name === name);
+      // Generate unique ID based on scheme and timestamp
+      const id = `${scheme}-${Date.now()}`;
       
-      if (existingIndex >= 0) {
-        // Update existing config with same name
-        config.providers[existingIndex] = {
-          ...config.providers[existingIndex],
-          scheme,
-          name,
-          enabled: true,
-          credentials: {
-            ...config.providers[existingIndex].credentials,
-            ...credentials
-          }
+      // For CLI auto-configuration, always create new providers to avoid conflicts
+      // Check if a CLI-configured provider with this scheme already exists
+      const existingCliProvider = config.providers.find(p => 
+        p.scheme === scheme && 
+        (p.name.includes('CLI') || p.name.includes('(') || p.name.includes('Auto'))
+      );
+      
+      if (existingCliProvider) {
+        // Update existing CLI provider
+        console.log(`🔄 Updating existing CLI provider: ${existingCliProvider.name}`);
+        existingCliProvider.credentials = {
+          ...existingCliProvider.credentials,
+          ...credentials
         };
+        existingCliProvider.enabled = true;
+        console.log(`✅ Updated existing CLI provider: ${existingCliProvider.name}`);
       } else {
-        // Create new provider config
+        // Create new provider config with unique ID
+        console.log(`🆕 Creating new CLI provider: ${name}`);
         const newProvider: any = {
+          id,
           name,
           scheme,
           enabled: true,
@@ -619,9 +737,11 @@ export class TuiApplication {
         }
         
         config.providers.push(newProvider);
+        console.log(`✅ Created new CLI provider: ${name} with ID: ${id}`);
       }
       
       await this.configManager.saveConfig(config);
+      console.log(`💾 Saved configuration for ${name}`);
     } catch (error) {
       console.warn(`Failed to create provider config for ${name}:`, (error as Error).message);
     }
@@ -790,7 +910,8 @@ export class TuiApplication {
     const selectionCount = selectedItems.size;
     const selectionText = selectionCount > 0 ? ` | Selected: ${selectionCount}` : '';
     
-    this.statusBar.content = `${leftInfo} | ${rightInfo} | ${selectionInfo}${selectionText} | Press P for provider, F9 for config, F1 for help, F10 to quit`;
+    const overlayStatus = this.overlayMode ? 'Overlay' : 'Full';
+    this.statusBar.content = `${leftInfo} | ${rightInfo} | ${selectionInfo}${selectionText} | Press P for provider, F9 for config, F1 for help, F12 for ${overlayStatus} mode, F10 to quit`;
     this.screen!.render();
   }
 
@@ -875,6 +996,7 @@ Configuration:
 
 System:
   F1           - Show this help
+  F12          - Toggle overlay mode (show/hide terminal content)
   F10          - Quit
 
 Selection:
@@ -937,6 +1059,16 @@ Press any key to close this help.
     } catch (error) {
       console.warn('Failed to save state:', (error as Error).message);
     }
+    
+    // Clear the screen and restore terminal
+    if (this.screen) {
+      this.screen.destroy();
+    }
+    
+    // Clear the screen completely
+    process.stdout.write('\x1b[2J\x1b[H');
+    process.stdout.write('\x1b[3J'); // Clear scrollback buffer
+    process.stdout.write('\x1b[0m'); // Reset all attributes
     
     process.exit(0);
   }
@@ -1398,10 +1530,24 @@ Press any key to close this help.
       // Update provider manager
       this.providerManager.setCurrentProvider(providerScheme);
 
-      // Load the new directory
-      await this.loadDirectory(pane, pane === 'left' ? this.leftUri : this.rightUri);
-
-      this.showStatus(`Switched ${pane} pane to ${this.providerManager.getProviderInfo(providerScheme)?.displayName}`);
+      // Load the new directory with proper error handling
+      const uri = pane === 'left' ? this.leftUri : this.rightUri;
+      console.log(`Switching ${pane} pane to ${providerScheme}, loading URI: ${uri}`);
+      
+      try {
+        await this.loadDirectory(pane, uri, 0);
+        this.showStatus(`Switched ${pane} pane to ${this.providerManager.getProviderInfo(providerScheme)?.displayName}`);
+      } catch (loadError) {
+        console.error(`Failed to load directory for ${providerScheme}:`, loadError);
+        this.showError(`Failed to load ${providerScheme} content: ${(loadError as Error).message}`);
+        
+        // Fallback: show empty list with error message
+        const paneList = pane === 'left' ? this.leftPane : this.rightPane;
+        if (paneList) {
+          paneList.setItems([`Error: ${(loadError as Error).message}`, '', 'Press P to switch provider']);
+          paneList.render();
+        }
+      }
 
     } catch (error) {
       this.showError(`Failed to switch provider: ${(error as Error).message}`);
@@ -1422,6 +1568,22 @@ Press any key to close this help.
         return 'aifs://';
       default:
         return os.homedir();
+    }
+  }
+
+  private joinUri(baseUri: string, itemName: string): string {
+    // Handle different URI schemes
+    if (baseUri.startsWith('s3://')) {
+      return `${baseUri}${itemName}`;
+    } else if (baseUri.startsWith('gcs://')) {
+      return `${baseUri}${itemName}`;
+    } else if (baseUri.startsWith('az://')) {
+      return `${baseUri}${itemName}`;
+    } else if (baseUri.startsWith('aifs://')) {
+      return `${baseUri}${itemName}`;
+    } else {
+      // For file system paths, use path.join
+      return path.join(baseUri, itemName);
     }
   }
 

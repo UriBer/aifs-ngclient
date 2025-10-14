@@ -5,14 +5,15 @@
  * Cross-cloud file manager with support for local, S3, GCS, Azure, and AIFS storage
  */
 
-const { TuiApplication } = require('../dist/index.js');
+const { TuiApplication } = require('../dist/TuiApplication.js');
 
 // Handle command line arguments
 const args = process.argv.slice(2);
 const options = {
   help: args.includes('--help') || args.includes('-h'),
   version: args.includes('--version') || args.includes('-v'),
-  config: args.includes('--config') ? args[args.indexOf('--config') + 1] : null
+  config: args.includes('--config') ? args[args.indexOf('--config') + 1] : null,
+  autoConfigureCli: args.includes('--auto-configure-cli')
 };
 
 if (options.help) {
@@ -25,10 +26,12 @@ Options:
   -h, --help          Show this help message
   -v, --version       Show version information
   --config <path>     Use custom configuration file
+  --auto-configure-cli Auto-configure providers from CLI credentials
 
 Examples:
   aifs-tui                    # Start TUI with default settings
   aifs-tui --config ./my-config.json  # Use custom configuration
+  aifs-tui --auto-configure-cli       # Auto-configure from CLI
 
 For more information, visit: https://github.com/aifs-ngclient/aifs-commander-tui
 `);
@@ -39,6 +42,11 @@ if (options.version) {
   const pkg = require('../package.json');
   console.log(pkg.version);
   process.exit(0);
+}
+
+// Set environment variables based on flags
+if (options.autoConfigureCli) {
+  process.env.AUTO_CONFIGURE_CLI = '1';
 }
 
 // Start the TUI application

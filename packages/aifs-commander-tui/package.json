@@ -1,7 +1,7 @@
 {
   "name": "aifs-commander-tui",
-  "version": "1.0.3",
-  "description": "Terminal User Interface for AIFS Commander - A cross-cloud file manager",
+  "version": "1.0.4",
+  "description": "Terminal User Interface for AIFS Commander - A cross-cloud file manager with ai file system supoort",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": {
@@ -38,8 +38,11 @@
     "node": ">=16.0.0"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.908.0",
+    "@azure/storage-blob": "^12.28.0",
+    "@google-cloud/storage": "^7.17.2",
     "blessed": "^0.1.81",
-    "inquirer": "^9.2.12",
-    "fs-extra": "^11.1.1"
+    "fs-extra": "^11.1.1",
+    "inquirer": "^9.2.12"
   }
 }

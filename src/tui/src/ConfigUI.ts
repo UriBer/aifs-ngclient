@@ -165,7 +165,7 @@ export class ConfigUI {
 
     // Handle action keys ONLY on the main configuration box
     // This ensures consistent behavior regardless of focus
-    this.mainBox.key(['e', 'c', 's', 't', 'd', 'a', 'E', 'C', 'S', 'T', 'D', 'A'], (ch, key) => {
+    this.mainBox.key(['e', 'c', 'r', 's', 't', 'd', 'a', 'E', 'C', 'R', 'S', 'T', 'D', 'A'], (ch, key) => {
       this.handleKeyPress(ch, key);
     });
 
@@ -208,7 +208,8 @@ export class ConfigUI {
     // Create simple configuration display (read-only)
     let content = `Provider: ${provider.name}\n`;
     content += `Scheme: ${provider.scheme}\n`;
-    content += `Status: ${provider.enabled ? '✓ Enabled' : '✗ Disabled'}\n\n`;
+    content += `Status: ${provider.enabled ? '✓ Enabled' : '✗ Disabled'}\n`;
+    content += `ID: ${provider.id}\n\n`;  // Show provider ID
 
     // Show credentials section
     content += 'Credentials:\n';
@@ -256,6 +257,7 @@ export class ConfigUI {
     content += 'Actions (use action keys):\n';
     content += '  E - Enable/Disable provider\n';
     content += '  C - Configure credentials\n';
+    content += '  R - Rename provider\n';  // Add rename option
     content += '  S - Configure settings\n';
     content += '  T - Test connection\n';
     content += '  D - Delete configuration\n';
@@ -494,6 +496,9 @@ export class ConfigUI {
       case 'c':
         this.configureCredentials();
         return true;
+      case 'r':
+        this.renameProvider();
+        return true;
       case 's':
         this.configureSettings();
         return true;
@@ -536,6 +541,32 @@ export class ConfigUI {
       // Focus remains on provider list for consistent key handling
     } catch (error) {
       this.showError(`Failed to toggle provider: ${(error as Error).message}`);
+    }
+  }
+
+  private async renameProvider(): Promise<void> {
+    if (!this.currentProvider) return;
+    
+    try {
+      const newName = await this.promptForInput(
+        `Enter new name for ${this.currentProvider.name}:`,
+        this.currentProvider.name
+      );
+      
+      if (newName && newName !== this.currentProvider.name) {
+        await this.configManager.updateProviderConfigById(this.currentProvider.id, {
+          name: newName
+        });
+        
+        this.currentProvider.name = newName;
+        await this.loadProviders();
+        await this.showProviderForm();
+        this.showSuccess(`Provider renamed to "${newName}"`);
+      }
+    } catch (error) {
+      if ((error as Error).message !== 'Cancelled') {
+        this.showError(`Failed to rename provider: ${(error as Error).message}`);
+      }
     }
   }
 
@@ -717,14 +748,14 @@ export class ConfigUI {
         'This will remove all saved credentials and settings for this provider.'
       );
       
-          if (confirmed) {
-            await this.configManager.deleteProviderConfig(this.currentProvider.scheme);
-            await this.loadProviders();
-            await this.showProviderForm();
-            this.showSuccess(`Configuration for ${this.currentProvider.name} deleted`);
-            
-            // Focus remains on provider list for consistent key handling
-          }
+      if (confirmed) {
+        await this.configManager.deleteProviderConfigById(this.currentProvider.id);
+        await this.loadProviders();
+        await this.showProviderForm();
+        this.showSuccess(`Configuration for ${this.currentProvider.name} deleted`);
+        
+        // Focus remains on provider list for consistent key handling
+      }
     } catch (error) {
       this.showError(`Failed to delete configuration: ${(error as Error).message}`);
     }
@@ -818,7 +849,7 @@ export class ConfigUI {
       this.screen.render();
 
       // Perform actual connection test
-      const testResult = await this.performConnectionTest(this.currentProvider.scheme);
+      const testResult = await this.performConnectionTest(this.currentProvider);
       
       // Close test dialog
       testDialog.detach();
@@ -837,24 +868,24 @@ export class ConfigUI {
     }
   }
 
-  private async performConnectionTest(scheme: string): Promise<{success: boolean, message: string}> {
-    switch (scheme) {
+  private async performConnectionTest(provider: ProviderConfig): Promise<{success: boolean, message: string}> {
+    switch (provider.scheme) {
       case 'file':
-        return this.testFileProvider();
+        return this.testFileProvider(provider);
       case 's3':
-        return this.testS3Provider();
+        return this.testS3Provider(provider);
       case 'gcs':
-        return this.testGCSProvider();
+        return this.testGCSProvider(provider);
       case 'az':
-        return this.testAzureProvider();
+        return this.testAzureProvider(provider);
       case 'aifs':
-        return this.testAIFSProvider();
+        return this.testAIFSProvider(provider);
       default:
         return { success: false, message: 'Unknown provider type' };
     }
   }
 
-  private async testFileProvider(): Promise<{success: boolean, message: string}> {
+  private async testFileProvider(_provider: ProviderConfig): Promise<{success: boolean, message: string}> {
     try {
       const fs = await import('fs/promises');
       const path = await import('path');
@@ -878,111 +909,168 @@ export class ConfigUI {
     }
   }
 
-  private async testS3Provider(): Promise<{success: boolean, message: string}> {
+  private async testS3Provider(provider: ProviderConfig): Promise<{success: boolean, message: string}> {
     try {
-      // First try CLI credentials
-      if (this.cliCredentialManager.hasAwsCredentials()) {
-        const cliTest = await this.cliCredentialManager.testAwsConnection();
-        if (cliTest.success) {
-          return { success: true, message: 'S3 connection successful (using AWS CLI credentials)' };
-        }
-      }
-
-      // Fallback to configured credentials
-      const provider = await this.configManager.getProviderConfig('s3');
-      if (!provider) {
-        return { success: false, message: 'S3 provider not configured and no AWS CLI credentials' };
-      }
-
-      const { S3Client, HeadBucketCommand } = await import('@aws-sdk/client-s3');
+      let S3Client, HeadBucketCommand;
       
-      const client = new S3Client({
-        region: provider.credentials.region || 'us-east-1',
-        credentials: {
+      try {
+        const awsSdk = await import('@aws-sdk/client-s3');
+        S3Client = awsSdk.S3Client;
+        HeadBucketCommand = awsSdk.HeadBucketCommand;
+      } catch (importError: any) {
+        return { 
+          success: false, 
+          message: `AWS SDK not available: ${importError.message}. Run 'npm install' in src/tui directory.` 
+        };
+      }
+      
+      // Use CLI credentials instead of configured ones for testing
+      let credentials;
+      let region;
+      let bucket;
+      
+      if (this.cliCredentialManager.hasAwsCredentials()) {
+        const cliCreds = this.cliCredentialManager.getCredentials();
+        credentials = {
+          accessKeyId: cliCreds.aws?.accessKeyId || '',
+          secretAccessKey: cliCreds.aws?.secretAccessKey || ''
+        };
+        region = cliCreds.aws?.region || 'us-east-1';
+        bucket = provider.credentials.bucket || 'test-bucket'; // Use a test bucket name
+        console.log('Using AWS CLI credentials for testing');
+      } else {
+        // Fallback to configured credentials
+        credentials = {
           accessKeyId: provider.credentials.accessKeyId || '',
           secretAccessKey: provider.credentials.secretAccessKey || ''
-        }
+        };
+        region = provider.credentials.region || 'us-east-1';
+        bucket = provider.credentials.bucket || 'test-bucket';
+        console.log('Using configured credentials for testing');
+      }
+      
+      const client = new S3Client({
+        region: region,
+        credentials: credentials
       });
+      
+      // If no bucket is configured, try to list buckets instead of testing a specific bucket
+      if (!bucket || bucket === 'test-bucket') {
+        console.log('No bucket configured, testing with ListBuckets instead');
+        const { ListBucketsCommand } = await import('@aws-sdk/client-s3');
+        const listCommand = new ListBucketsCommand({});
+        await client.send(listCommand);
+        return { success: true, message: `S3 connection successful for ${provider.name} (using ${this.cliCredentialManager.hasAwsCredentials() ? 'CLI' : 'configured'} credentials) - Listed buckets` };
+      }
 
       const command = new HeadBucketCommand({
-        Bucket: provider.credentials.bucket || ''
+        Bucket: bucket
       });
 
       await client.send(command);
-      return { success: true, message: 'S3 connection successful (using configured credentials)' };
+      return { success: true, message: `S3 connection successful for ${provider.name} (using ${this.cliCredentialManager.hasAwsCredentials() ? 'CLI' : 'configured'} credentials)` };
     } catch (error) {
       return { success: false, message: `S3 test failed: ${(error as Error).message}` };
     }
   }
 
-  private async testGCSProvider(): Promise<{success: boolean, message: string}> {
+  private async testGCSProvider(provider: ProviderConfig): Promise<{success: boolean, message: string}> {
     try {
-      // First try CLI credentials
+      let Storage;
+      
+      try {
+        const gcsSdk = await import('@google-cloud/storage');
+        Storage = gcsSdk.Storage;
+      } catch (importError: any) {
+        return { 
+          success: false, 
+          message: `Google Cloud Storage SDK not available: ${importError.message}. Run 'npm install' in src/tui directory.` 
+        };
+      }
+
+      // Use CLI credentials instead of configured ones for testing
+      let storageConfig;
+      
       if (this.cliCredentialManager.hasGcpCredentials()) {
-        const cliTest = await this.cliCredentialManager.testGcpConnection();
-        if (cliTest.success) {
-          return { success: true, message: 'GCS connection successful (using GCP CLI credentials)' };
-        }
+        const cliCreds = this.cliCredentialManager.getCredentials();
+        storageConfig = {
+          projectId: cliCreds.gcp?.projectId || provider.credentials.projectId || '',
+          keyFilename: cliCreds.gcp?.keyFilename || provider.credentials.keyFilename || undefined
+        };
+        console.log('Using GCP CLI credentials for testing');
+      } else {
+        // Fallback to configured credentials
+        storageConfig = {
+          projectId: provider.credentials.projectId || '',
+          keyFilename: provider.credentials.keyFilename || undefined
+        };
+        console.log('Using configured credentials for testing');
       }
 
-      // Fallback to configured credentials
-      const provider = await this.configManager.getProviderConfig('gcs');
-      if (!provider) {
-        return { success: false, message: 'GCS provider not configured and no GCP CLI credentials' };
-      }
-
-      // For GCS, we would typically test with @google-cloud/storage
-      // This is a simplified test
-      if (!provider.credentials.projectId || !provider.credentials.bucket) {
-        return { success: false, message: 'GCS credentials incomplete' };
-      }
-
-      return { success: true, message: 'GCS configuration valid (connection test requires Google Cloud SDK)' };
-    } catch (error) {
-      return { success: false, message: `GCS test failed: ${(error as Error).message}` };
+      const storage = new Storage(storageConfig);
+      const bucket = storage.bucket(provider.credentials.bucket || 'default-bucket');
+      await bucket.getMetadata();
+      
+      return { success: true, message: `GCS connection successful for ${provider.name} (using ${this.cliCredentialManager.hasGcpCredentials() ? 'CLI' : 'configured'} credentials)` };
+    } catch (error: any) {
+      return { success: false, message: `GCS test failed: ${error.message}` };
     }
   }
 
-  private async testAzureProvider(): Promise<{success: boolean, message: string}> {
+  private async testAzureProvider(provider: ProviderConfig): Promise<{success: boolean, message: string}> {
     try {
-      // First try CLI credentials
+      let BlobServiceClient;
+      
+      try {
+        const azureSdk = await import('@azure/storage-blob');
+        BlobServiceClient = azureSdk.BlobServiceClient;
+      } catch (importError: any) {
+        return { 
+          success: false, 
+          message: `Azure Storage SDK not available: ${importError.message}. Run 'npm install' in src/tui directory.` 
+        };
+      }
+
+      // Use CLI credentials instead of configured ones for testing
+      let client;
+      
       if (this.cliCredentialManager.hasAzureCredentials()) {
-        const cliTest = await this.cliCredentialManager.testAzureConnection();
-        if (cliTest.success) {
-          return { success: true, message: 'Azure connection successful (using Azure CLI credentials)' };
+        // For Azure, we'll use the configured connection string or account details
+        // since Azure CLI doesn't provide direct storage credentials
+        if (provider.credentials.connectionString) {
+          client = new BlobServiceClient(provider.credentials.connectionString);
+        } else {
+          const accountName = provider.credentials.accountName || '';
+          const accountKey = provider.credentials.accountKey || '';
+          const connectionString = `DefaultEndpointsProtocol=https;AccountName=${accountName};AccountKey=${accountKey};EndpointSuffix=core.windows.net`;
+          client = new BlobServiceClient(connectionString);
         }
+        console.log('Using Azure CLI context for testing (with configured storage credentials)');
+      } else {
+        // Fallback to configured credentials
+        if (provider.credentials.connectionString) {
+          client = new BlobServiceClient(provider.credentials.connectionString);
+        } else {
+          const accountName = provider.credentials.accountName || '';
+          const accountKey = provider.credentials.accountKey || '';
+          const connectionString = `DefaultEndpointsProtocol=https;AccountName=${accountName};AccountKey=${accountKey};EndpointSuffix=core.windows.net`;
+          client = new BlobServiceClient(connectionString);
+        }
+        console.log('Using configured credentials for testing');
       }
 
-      // Fallback to configured credentials
-      const provider = await this.configManager.getProviderConfig('az');
-      if (!provider) {
-        return { success: false, message: 'Azure provider not configured and no Azure CLI credentials' };
-      }
-
-      // For Azure, we would typically test with @azure/storage-blob
-      // This is a simplified test
-      if (!provider.credentials.containerName) {
-        return { success: false, message: 'Azure container name required' };
-      }
-
-      if (!provider.credentials.connectionString && 
-          (!provider.credentials.accountName || !provider.credentials.accountKey)) {
-        return { success: false, message: 'Azure credentials incomplete' };
-      }
-
-      return { success: true, message: 'Azure configuration valid (connection test requires Azure SDK)' };
-    } catch (error) {
-      return { success: false, message: `Azure test failed: ${(error as Error).message}` };
+      const containerName = provider.credentials.containerName || 'default-container';
+      const containerClient = client.getContainerClient(containerName);
+      await containerClient.getProperties();
+      
+      return { success: true, message: `Azure connection successful for ${provider.name} (using ${this.cliCredentialManager.hasAzureCredentials() ? 'CLI context' : 'configured'} credentials)` };
+    } catch (error: any) {
+      return { success: false, message: `Azure test failed: ${error.message}` };
     }
   }
 
-  private async testAIFSProvider(): Promise<{success: boolean, message: string}> {
+  private async testAIFSProvider(provider: ProviderConfig): Promise<{success: boolean, message: string}> {
     try {
-      const provider = await this.configManager.getProviderConfig('aifs');
-      if (!provider) {
-        return { success: false, message: 'AIFS provider not configured' };
-      }
-
       if (!provider.credentials.endpoint) {
         return { success: false, message: 'AIFS endpoint required' };
       }
@@ -994,7 +1082,7 @@ export class ConfigUI {
         return { success: false, message: 'AIFS endpoint must include port (e.g., localhost:50052)' };
       }
 
-      return { success: true, message: `AIFS endpoint ${endpoint} format valid (connection test requires gRPC client)` };
+      return { success: true, message: `AIFS endpoint ${endpoint} format valid for ${provider.name} (connection test requires gRPC client)` };
     } catch (error) {
       return { success: false, message: `AIFS test failed: ${(error as Error).message}` };
     }
