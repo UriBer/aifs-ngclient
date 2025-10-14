@@ -75,7 +75,12 @@ export type AppAction =
   | { type: 'CLEAR_SELECTION'; payload: { pane: 'left' | 'right' } }
   | { type: 'SET_FILTER'; payload: { pane: 'left' | 'right'; filter: string } }
   | { type: 'SET_SCROLL_OFFSET'; payload: { pane: 'left' | 'right'; offset: number } }
-  | { type: 'UPDATE_SETTINGS'; payload: Partial<AppState['settings']> };
+  | { type: 'UPDATE_SETTINGS'; payload: Partial<AppState['settings']> }
+  | { type: 'COPY_FILES'; payload: { sources: FileItem[]; destination: string } }
+  | { type: 'MOVE_FILES'; payload: { sources: FileItem[]; destination: string } }
+  | { type: 'DELETE_FILES'; payload: { items: FileItem[] } }
+  | { type: 'RENAME_FILE'; payload: { item: FileItem; newName: string } }
+  | { type: 'CREATE_DIRECTORY'; payload: { parentUri: string; name: string } };
 
 export interface ProviderInfo {
   name: string;

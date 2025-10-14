@@ -25,79 +25,21 @@ export function FilePane({
 }: FilePaneProps) {
   const { items, selectedIndex, selectedItems, loading, error, provider, scrollOffset, filter } = state;
 
-  // Filter items based on current filter
+  // Filter items based on current filter and apply scroll offset
   const filteredItems = useMemo(() => {
-    if (!filter) return items;
-    return items.filter(item => 
-      item.name.toLowerCase().includes(filter.toLowerCase())
-    );
-  }, [items, filter]);
-
-  // Handle keyboard input when this pane is active
-  useInput((input: string, key: any) => {
-    if (!isActive) return;
-
-    switch (input) {
-      case 'up':
-      case 'k':
-        if (selectedIndex > 0) {
-          onSelect(selectedIndex - 1);
-        }
-        break;
-      case 'down':
-      case 'j':
-        if (selectedIndex < filteredItems.length - 1) {
-          onSelect(selectedIndex + 1);
-        }
-        break;
-      case 'enter':
-        if (filteredItems[selectedIndex]?.isDirectory) {
-          onNavigate(filteredItems[selectedIndex].uri);
-        }
-        break;
-      case 'backspace':
-      case 'h':
-        // Go up one directory
-        const currentUri = state.uri;
-        const parentUri = currentUri.split('/').slice(0, -1).join('/') || '/';
-        if (parentUri !== currentUri) {
-          onNavigate(parentUri);
-        }
-        break;
-      case ' ':
-        // Toggle selection
-        if (filteredItems[selectedIndex]) {
-          onToggleSelection(filteredItems[selectedIndex]);
-        }
-        break;
-      case 'a':
-        if (key.ctrl || key.meta) {
-          // Select all
-          filteredItems.forEach(item => onToggleSelection(item));
-        }
-        break;
-      case 'c':
-        if (key.ctrl || key.meta) {
-          // Clear selection
-          onSelect(0);
-        }
-        break;
+    let filtered = items;
+    if (filter) {
+      filtered = items.filter(item => 
+        item.name.toLowerCase().includes(filter.toLowerCase())
+      );
     }
+    
+    // Apply scroll offset to show items starting from scrollOffset
+    return filtered.slice(scrollOffset);
+  }, [items, filter, scrollOffset]);
 
-    // Handle page up/down
-    if (key.pageUp) {
-      onScroll(Math.max(0, scrollOffset - 10));
-    } else if (key.pageDown) {
-      onScroll(scrollOffset + 10);
-    }
-
-    // Handle home/end
-    if (key.home) {
-      onSelect(0);
-    } else if (key.end) {
-      onSelect(filteredItems.length - 1);
-    }
-  }, { isActive });
+  // Note: Keyboard input is handled globally in App.tsx
+  // This component only renders the file list
 
   const formatFileSize = (size: number): string => {
     if (size === 0) return '';
@@ -115,7 +57,7 @@ export function FilePane({
 
   const getFileIcon = (item: FileItem): string => {
     if (item.isDirectory) {
-      return '📁';
+      return item.name === '..' ? '↑' : 'D';
     }
     
     // Determine file type by extension
@@ -126,27 +68,27 @@ export function FilePane({
       case 'json':
       case 'yaml':
       case 'yml':
-        return '📄';
+        return 'T';
       case 'jpg':
       case 'jpeg':
       case 'png':
       case 'gif':
       case 'svg':
-        return '🖼️';
+        return 'I';
       case 'mp4':
       case 'avi':
       case 'mov':
       case 'mkv':
-        return '🎬';
+        return 'V';
       case 'mp3':
       case 'wav':
       case 'flac':
-        return '🎵';
+        return 'A';
       case 'zip':
       case 'tar':
       case 'gz':
       case 'rar':
-        return '📦';
+        return 'Z';
       case 'js':
       case 'ts':
       case 'jsx':
@@ -156,20 +98,20 @@ export function FilePane({
       case 'cpp':
       case 'c':
       case 'h':
-        return '💻';
+        return 'C';
       default:
-        return '📄';
+        return 'F';
     }
   };
 
   const getProviderIcon = (provider: string): string => {
     switch (provider) {
-      case 'file': return '📁';
-      case 's3': return '☁️';
-      case 'gcs': return '🌐';
-      case 'az': return '🔷';
-      case 'aifs': return '🤖';
-      default: return '❓';
+      case 'file': return 'F';
+      case 's3': return 'S';
+      case 'gcs': return 'G';
+      case 'az': return 'A';
+      case 'aifs': return 'I';
+      default: return '?';
     }
   };
 
@@ -212,18 +154,23 @@ export function FilePane({
   return (
     <Box flexDirection="column" height="100%">
       {/* Header */}
-      <Box borderStyle="single" borderColor={isActive ? "blue" : "gray"} padding={1} marginBottom={1}>
-        <Text color="white" bold>
-          {pane === 'left' ? 'Left' : 'Right'} Pane
+      <Box 
+        borderStyle="single" 
+        borderColor={isActive ? "blue" : "gray"} 
+        padding={1} 
+        marginBottom={1}
+      >
+        <Text color={isActive ? "white" : "white"} bold>
+          {pane === 'left' ? 'Left' : 'Right'} Pane {isActive ? '← ACTIVE' : ''}
         </Text>
-        <Text color="gray"> - {getProviderIcon(provider)} {provider}</Text>
+        <Text color={isActive ? "white" : "gray"}> - {getProviderIcon(provider)} {provider}</Text>
         {filter && (
           <Text color="yellow"> | Filter: {filter}</Text>
         )}
       </Box>
 
-      {/* File list */}
-      <Box flexDirection="column" flexGrow={1} padding={1}>
+      {/* File list - use flexGrow to fill remaining space */}
+      <Box flexDirection="column" flexGrow={1} padding={1} height="100%">
         {filteredItems.length === 0 ? (
           <Box flexDirection="column" justifyContent="center" alignItems="center" flexGrow={1}>
             <Text color="gray">
@@ -235,7 +182,8 @@ export function FilePane({
           </Box>
         ) : (
           filteredItems.map((item, index) => {
-            const isSelected = index === selectedIndex;
+            const actualIndex = index + scrollOffset;
+            const isSelected = actualIndex === selectedIndex;
             const isItemSelected = selectedItems.has(item.uri);
             const icon = getFileIcon(item);
             const size = formatFileSize(item.size);
@@ -246,14 +194,17 @@ export function FilePane({
                   {isItemSelected ? '✓ ' : '  '}
                 </Text>
                 <Text
-                  color={isSelected ? 'blue' : isItemSelected ? 'green' : 'white'}
-                  backgroundColor={isSelected ? 'blue' : undefined}
-                  inverse={isSelected}
+                  color={isSelected ? 'black' : isItemSelected ? 'green' : 'white'}
+                  backgroundColor={isSelected ? 'yellow' : undefined}
+                  bold={isSelected}
                 >
                   {icon} {item.name}
                 </Text>
                 {size && (
-                  <Text color="gray"> {size}</Text>
+                  <Text color={isSelected ? 'black' : 'gray'}> {size}</Text>
+                )}
+                {isSelected && (
+                  <Text color="yellow" bold> ←</Text>
                 )}
               </Box>
             );

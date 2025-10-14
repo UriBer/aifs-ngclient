@@ -18,7 +18,14 @@
     "ink-select-input": "^5.0.0",
     "ink-spinner": "^5.0.0",
     "react": "^18.2.0",
-    "@types/react": "^18.2.0"
+    "@types/react": "^18.2.0",
+    "@aws-sdk/client-s3": "^3.321.1",
+    "@aws-sdk/lib-storage": "^3.321.1",
+    "@azure/storage-blob": "^12.14.0",
+    "@google-cloud/storage": "^6.10.1",
+    "@grpc/grpc-js": "^1.8.14",
+    "blessed": "^0.1.81",
+    "minimatch": "^5.1.0"
   },
   "devDependencies": {
     "typescript": "^5.3.0",

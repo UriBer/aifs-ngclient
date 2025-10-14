@@ -64,9 +64,10 @@ if (options.version) {
   process.exit(0);
 }
 
-// Check if running in terminal
-if (!process.stdout.isTTY) {
+// Check if running in terminal (be more lenient)
+if (!process.stdout.isTTY && !process.env.FORCE_TUI) {
   console.error('AIFS Commander TUI requires a terminal environment');
+  console.error('Set FORCE_TUI=1 to override this check');
   process.exit(1);
 }
 
@@ -75,5 +76,26 @@ if (options.debug) {
   process.env.DEBUG = '1';
 }
 
+// Check if raw mode is supported
+if (!process.stdin.isTTY) {
+  console.error('❌ Error: Raw mode is not supported in this environment');
+  console.error('This usually happens when running in certain terminals or IDEs');
+  console.error('Try running in a regular terminal or set FORCE_TUI=1');
+  process.exit(1);
+}
+
 // Render the application
-render(<App />);
+try {
+  render(<App />, {
+    patchConsole: false,
+    exitOnCtrlC: true
+  });
+} catch (error) {
+  if (error instanceof Error && error.message.includes('Raw mode is not supported')) {
+    console.error('❌ Error: Raw mode is not supported in this environment');
+    console.error('This usually happens when running in certain terminals or IDEs');
+    console.error('Try running in a regular terminal or set FORCE_TUI=1');
+    process.exit(1);
+  }
+  throw error;
+}

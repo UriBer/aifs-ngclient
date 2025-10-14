@@ -24,7 +24,9 @@
       "@/hooks/*": ["./src/hooks/*"],
       "@/providers/*": ["./src/providers/*"],
       "@/utils/*": ["./src/utils/*"],
-      "@/shared/*": ["../shared/*"]
+      "@/shared/*": ["../shared/*"],
+      "@shared/*": ["../../shared/*"],
+      "@tui/*": ["../tui/src/*"]
     }
   },
   "include": [

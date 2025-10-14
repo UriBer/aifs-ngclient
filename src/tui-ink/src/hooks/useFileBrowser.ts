@@ -1,182 +1,166 @@
-// Custom hook for file browser state management
+// Custom hook for file browser state management with real provider integration
 
-import { useCallback } from 'react';
+import { useCallback, useState, useEffect } from 'react';
 import { FileItem } from '../types.js';
+import { ProviderManager } from '../providers/ProviderManager.js';
+import { StateManager } from '../providers/StateManager.js';
+import { ConfigManager } from '../providers/ConfigManager.js';
 
-// Mock provider manager - in real implementation, this would integrate with existing ProviderManager
 export function useFileBrowser() {
+  const [providerManager] = useState(() => new ProviderManager());
+  const [stateManager] = useState(() => new StateManager());
+  const [configManager] = useState(() => new ConfigManager());
+  const [isInitialized, setIsInitialized] = useState(false);
+
+  // Initialize providers on mount
+  useEffect(() => {
+    const initializeProviders = async () => {
+      try {
+        // ProviderManager doesn't have initializeProviders method, it's initialized in constructor
+        setIsInitialized(true);
+      } catch (error) {
+        console.error('Failed to initialize providers:', error);
+        setIsInitialized(true); // Continue anyway
+      }
+    };
+    initializeProviders();
+  }, [providerManager]);
+
   const loadDirectory = useCallback(async (uri: string, provider: string): Promise<FileItem[]> => {
-    // Simulate network delay for cloud providers
-    if (provider !== 'file') {
-      await new Promise(resolve => setTimeout(resolve, 500));
+    if (!isInitialized) {
+      throw new Error('Providers not initialized yet');
     }
 
-    // Mock file system for demonstration
-    const mockFiles: FileItem[] = [
-      {
-        name: '..',
-        uri: uri.split('/').slice(0, -1).join('/') || '/',
-        isDirectory: true,
-        size: 0,
-        lastModified: new Date(),
-      },
-      {
-        name: 'Documents',
-        uri: `${uri}/Documents`,
-        isDirectory: true,
-        size: 4096,
-        lastModified: new Date(),
-      },
-      {
-        name: 'Downloads',
-        uri: `${uri}/Downloads`,
-        isDirectory: true,
-        size: 8192,
-        lastModified: new Date(),
-      },
-      {
-        name: 'Pictures',
-        uri: `${uri}/Pictures`,
-        isDirectory: true,
-        size: 16384,
-        lastModified: new Date(),
-      },
-      {
-        name: 'Projects',
-        uri: `${uri}/Projects`,
-        isDirectory: true,
-        size: 32768,
-        lastModified: new Date(),
-      },
-      {
-        name: 'readme.txt',
-        uri: `${uri}/readme.txt`,
-        isDirectory: false,
-        size: 1024,
-        lastModified: new Date(),
-      },
-      {
-        name: 'config.json',
-        uri: `${uri}/config.json`,
-        isDirectory: false,
-        size: 512,
-        lastModified: new Date(),
-      },
-      {
-        name: 'data.csv',
-        uri: `${uri}/data.csv`,
-        isDirectory: false,
-        size: 2048,
-        lastModified: new Date(),
-      },
-      {
-        name: 'image.jpg',
-        uri: `${uri}/image.jpg`,
-        isDirectory: false,
-        size: 15360,
-        lastModified: new Date(),
-      },
-      {
-        name: 'video.mp4',
-        uri: `${uri}/video.mp4`,
-        isDirectory: false,
-        size: 1048576,
-        lastModified: new Date(),
-      },
-    ];
-
-    // Add more files for cloud providers to simulate large directories
-    if (provider !== 'file') {
-      for (let i = 0; i < 25; i++) {
-        mockFiles.push({
-          name: `cloud-file-${i + 1}.txt`,
-          uri: `${uri}/cloud-file-${i + 1}.txt`,
-          isDirectory: false,
-          size: Math.floor(Math.random() * 10000) + 100,
-          lastModified: new Date(),
-        });
-      }
-
-      // Add some cloud-specific directories
-      for (let i = 0; i < 5; i++) {
-        mockFiles.push({
-          name: `cloud-folder-${i + 1}`,
-          uri: `${uri}/cloud-folder-${i + 1}`,
-          isDirectory: true,
-          size: Math.floor(Math.random() * 5000) + 1000,
-          lastModified: new Date(),
-        });
-      }
+    try {
+      const result = await providerManager.list(uri);
+      return result.items.map((item: any) => ({
+        name: item.name,
+        uri: item.uri,
+        isDirectory: item.isDirectory,
+        size: item.size || 0,
+        lastModified: item.lastModified,
+        permissions: item.permissions,
+        owner: item.owner,
+        group: item.group,
+      }));
+    } catch (error) {
+      console.error(`Failed to load directory ${uri} with provider ${provider}:`, error);
+      throw error;
     }
-
-    return mockFiles;
-  }, []);
+  }, [providerManager, isInitialized]);
 
   const switchProvider = useCallback(async (provider: string): Promise<void> => {
-    // Simulate provider switching
-    await new Promise(resolve => setTimeout(resolve, 200));
-    
-    // In real implementation, this would:
-    // 1. Validate provider configuration
-    // 2. Test connection
-    // 3. Update provider state
-    // 4. Clear current directory cache
-  }, []);
+    if (!isInitialized) {
+      throw new Error('Providers not initialized yet');
+    }
+
+    try {
+      // Validate provider configuration
+      const providerInfo = providerManager.getProviderInfo(provider);
+      if (!providerInfo || !providerInfo.available) {
+        throw new Error(`Provider ${provider} is not available or not configured`);
+      }
+      
+      // Update provider state
+      providerManager.setCurrentProvider(provider);
+    } catch (error) {
+      console.error(`Failed to switch to provider ${provider}:`, error);
+      throw error;
+    }
+  }, [providerManager, isInitialized]);
 
   const copyFile = useCallback(async (sourceUri: string, destUri: string): Promise<void> => {
-    // Simulate file copy operation
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    
-    // In real implementation, this would:
-    // 1. Validate source and destination
-    // 2. Check permissions
-    // 3. Perform actual copy operation
-    // 4. Update UI state
-  }, []);
+    if (!isInitialized) {
+      throw new Error('Providers not initialized yet');
+    }
+
+    try {
+      await providerManager.copy(sourceUri, destUri);
+    } catch (error) {
+      console.error(`Failed to copy file from ${sourceUri} to ${destUri}:`, error);
+      throw error;
+    }
+  }, [providerManager, isInitialized]);
 
   const moveFile = useCallback(async (sourceUri: string, destUri: string): Promise<void> => {
-    // Simulate file move operation
-    await new Promise(resolve => setTimeout(resolve, 800));
-    
-    // In real implementation, this would:
-    // 1. Validate source and destination
-    // 2. Check permissions
-    // 3. Perform actual move operation
-    // 4. Update UI state
-  }, []);
+    if (!isInitialized) {
+      throw new Error('Providers not initialized yet');
+    }
+
+    try {
+      await providerManager.move(sourceUri, destUri);
+    } catch (error) {
+      console.error(`Failed to move file from ${sourceUri} to ${destUri}:`, error);
+      throw error;
+    }
+  }, [providerManager, isInitialized]);
 
   const deleteFile = useCallback(async (uri: string): Promise<void> => {
-    // Simulate file delete operation
-    await new Promise(resolve => setTimeout(resolve, 300));
-    
-    // In real implementation, this would:
-    // 1. Validate file exists
-    // 2. Check permissions
-    // 3. Perform actual delete operation
-    // 4. Update UI state
-  }, []);
+    if (!isInitialized) {
+      throw new Error('Providers not initialized yet');
+    }
+
+    try {
+      await providerManager.delete(uri);
+    } catch (error) {
+      console.error(`Failed to delete file ${uri}:`, error);
+      throw error;
+    }
+  }, [providerManager, isInitialized]);
 
   const createDirectory = useCallback(async (uri: string): Promise<void> => {
-    // Simulate directory creation
-    await new Promise(resolve => setTimeout(resolve, 200));
-    
-    // In real implementation, this would:
-    // 1. Validate parent directory exists
-    // 2. Check permissions
-    // 3. Perform actual directory creation
-    // 4. Update UI state
-  }, []);
+    if (!isInitialized) {
+      throw new Error('Providers not initialized yet');
+    }
+
+    try {
+      await providerManager.mkdir(uri);
+    } catch (error) {
+      console.error(`Failed to create directory ${uri}:`, error);
+      throw error;
+    }
+  }, [providerManager, isInitialized]);
 
   const renameFile = useCallback(async (uri: string, newName: string): Promise<void> => {
-    // Simulate file rename operation
-    await new Promise(resolve => setTimeout(resolve, 400));
-    
-    // In real implementation, this would:
-    // 1. Validate new name
-    // 2. Check permissions
-    // 3. Perform actual rename operation
-    // 4. Update UI state
-  }, []);
+    if (!isInitialized) {
+      throw new Error('Providers not initialized yet');
+    }
+
+    try {
+      // ProviderManager doesn't have rename, use move instead
+      const parentDir = uri.substring(0, uri.lastIndexOf('/'));
+      const newUri = `${parentDir}/${newName}`;
+      await providerManager.move(uri, newUri);
+    } catch (error) {
+      console.error(`Failed to rename file ${uri} to ${newName}:`, error);
+      throw error;
+    }
+  }, [providerManager, isInitialized]);
+
+  const getProviderInfo = useCallback((provider: string) => {
+    return providerManager.getProviderInfo(provider);
+  }, [providerManager]);
+
+  const getAvailableProviders = useCallback(() => {
+    return providerManager.getAllProviders();
+  }, [providerManager]);
+
+  const loadState = useCallback(async () => {
+    try {
+      return await stateManager.loadState();
+    } catch (error) {
+      console.error('Failed to load state:', error);
+      return null;
+    }
+  }, [stateManager]);
+
+  const saveState = useCallback(async (leftUri: string, rightUri: string, leftSelectedIndex: number, rightSelectedIndex: number) => {
+    try {
+      await stateManager.saveState(leftUri, rightUri, leftSelectedIndex, rightSelectedIndex);
+    } catch (error) {
+      console.error('Failed to save state:', error);
+    }
+  }, [stateManager]);
 
   return {
     loadDirectory,
@@ -186,5 +170,10 @@ export function useFileBrowser() {
     deleteFile,
     createDirectory,
     renameFile,
+    getProviderInfo,
+    getAvailableProviders,
+    loadState,
+    saveState,
+    isInitialized,
   };
 }

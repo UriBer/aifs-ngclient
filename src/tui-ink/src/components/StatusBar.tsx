@@ -109,7 +109,7 @@ export function StatusBar({
       {/* Current item info */}
       <Box flexDirection="row" marginLeft={1}>
         <Text color="gray">
-          {getCurrentItemInfo()} | Press P
+          {getCurrentItemInfo()}
         </Text>
       </Box>
 
