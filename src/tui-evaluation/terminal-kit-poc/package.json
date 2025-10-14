@@ -1,0 +1,30 @@
+{
+  "name": "aifs-commander-terminalkit-poc",
+  "version": "1.0.0",
+  "description": "terminal-kit-based proof-of-concept for AIFS Commander TUI",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "start": "node dist/index.js",
+    "dev": "tsx src/index.ts",
+    "build": "tsc",
+    "prebuild": "rm -rf dist"
+  },
+  "dependencies": {
+    "terminal-kit": "^3.0.0",
+    "@types/terminal-kit": "^2.5.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.0",
+    "tsx": "^4.6.0",
+    "@types/node": "^20.10.0"
+  },
+  "keywords": [
+    "tui",
+    "terminal-kit",
+    "terminal",
+    "file-manager"
+  ],
+  "author": "AIFS Commander Team",
+  "license": "MIT"
+}

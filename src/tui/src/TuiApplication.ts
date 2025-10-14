@@ -8,6 +8,8 @@ import { StateManager } from './StateManager.js';
 import { ConfigUI } from './ConfigUI.js';
 import { ConfigManager } from './ConfigManager.js';
 import { CliCredentialManager } from './CliCredentialManager.js';
+import { RefreshFix } from './RefreshFix.js';
+import { StatusBarFix } from './StatusBarFix.js';
 
 export class TuiApplication {
   private screen: blessed.Widgets.Screen | null = null;
@@ -45,11 +47,21 @@ export class TuiApplication {
   private bufferSize: number = 1000;
   private lastRenderTime: number = 0;
   private renderState: 'idle' | 'rendering' | 'queued' = 'idle';
+  private errorCount: number = 0;
+  private maxErrors: number = 10;
+  private lastErrorTime: number = 0;
+  private recoveryMode: boolean = false;
+  private healthStatus: 'healthy' | 'degraded' | 'critical' = 'healthy';
+  private healthCheckInterval: NodeJS.Timeout | null = null;
+  private refreshFix: RefreshFix;
+  private statusBarFix: StatusBarFix;
 
   constructor(_options?: TuiApplicationOptions) {
     this.providerManager = new ProviderManager();
     this.stateManager = new StateManager();
     this.configManager = new ConfigManager();
+    this.refreshFix = RefreshFix.getInstance();
+    this.statusBarFix = StatusBarFix.getInstance();
   }
 
   async start(): Promise<void> {
@@ -85,6 +97,12 @@ export class TuiApplication {
       
       // Create terminal overlay after all debug messages are written
       this.createTerminalOverlay();
+      
+      // Start health monitoring
+      this.startHealthMonitoring();
+      
+      // Apply refresh fixes to resolve any state inconsistencies
+      this.applyRefreshFixes();
       
       // Final render only after everything is ready
       this.hideLoadingState();
@@ -285,6 +303,276 @@ export class TuiApplication {
     console.log(`   Buffer size: ${stats.bufferSize}`);
     console.log(`   Last render: ${stats.lastRenderTime}`);
     console.log(`   Render duration: ${stats.renderDuration}ms`);
+    console.log(`   Error count: ${this.errorCount}`);
+    console.log(`   Health status: ${this.healthStatus}`);
+    console.log(`   Recovery mode: ${this.recoveryMode}`);
+  }
+
+  private handleError(error: Error, context: string): void {
+    this.errorCount++;
+    this.lastErrorTime = Date.now();
+    
+    // Add to render buffer for debugging
+    this.addToRenderBuffer(`ERROR [${context}]: ${error.message}`);
+    
+    // Update health status based on error frequency
+    if (this.errorCount > this.maxErrors) {
+      this.healthStatus = 'critical';
+      this.recoveryMode = true;
+    } else if (this.errorCount > this.maxErrors / 2) {
+      this.healthStatus = 'degraded';
+    }
+    
+    // Log error with context
+    console.error(`[${context}] Error:`, error);
+    
+    // Show user-friendly error message
+    this.showError(`Error in ${context}: ${error.message}`);
+    
+    // Attempt automatic recovery for certain errors
+    this.attemptRecovery(error, context);
+  }
+
+  private attemptRecovery(_error: Error, context: string): void {
+    if (this.recoveryMode) {
+      console.log(`🔄 Attempting recovery for ${context}...`);
+      
+      try {
+        switch (context) {
+          case 'render':
+            this.recoverFromRenderError();
+            break;
+          case 'directory-load':
+            this.recoverFromDirectoryLoadError();
+            break;
+          case 'provider-switch':
+            this.recoverFromProviderSwitchError();
+            break;
+          case 'resize':
+            this.recoverFromResizeError();
+            break;
+          default:
+            this.performGeneralRecovery();
+        }
+      } catch (recoveryError) {
+        console.error('Recovery failed:', recoveryError);
+        this.showError('Recovery failed. Please restart the application.');
+      }
+    }
+  }
+
+  private recoverFromRenderError(): void {
+    // Clear render queue and reset render state
+    this.renderQueue = [];
+    this.isRendering = false;
+    this.renderState = 'idle';
+    
+    if (this.renderTimeout) {
+      clearTimeout(this.renderTimeout);
+      this.renderTimeout = null;
+    }
+    
+    // Force a clean render
+    this.scheduleRender(() => {
+      this.showStatus('Render system recovered');
+    });
+  }
+
+  private recoverFromDirectoryLoadError(): void {
+    // Reset to safe directory
+    const safeUri = process.env.HOME || '/';
+    this.leftUri = safeUri;
+    this.rightUri = safeUri;
+    
+    // Clear selections
+    this.leftSelectedItems.clear();
+    this.rightSelectedItems.clear();
+    
+    // Reload directories
+    this.scheduleRender(() => {
+      this.loadDirectory('left', this.leftUri, 0);
+      this.loadDirectory('right', this.rightUri, 0);
+    });
+  }
+
+  private recoverFromProviderSwitchError(): void {
+    // Reset to file provider
+    this.leftProvider = 'file';
+    this.rightProvider = 'file';
+    
+    // Reset URIs to safe local paths
+    this.leftUri = process.env.HOME || '/';
+    this.rightUri = process.env.HOME || '/';
+    
+    this.showStatus('Reset to file provider');
+  }
+
+  private recoverFromResizeError(): void {
+    // Reset divider to center
+    this.dividerPosition = 50;
+    
+    // Refresh panes
+    this.scheduleRender(() => {
+      this.refreshCurrentPanes();
+    });
+  }
+
+  private performGeneralRecovery(): void {
+    // General recovery: reset to safe state
+    this.recoveryMode = false;
+    this.healthStatus = 'healthy';
+    this.errorCount = Math.max(0, this.errorCount - 1);
+    
+    this.showStatus('System recovered');
+  }
+
+  private checkHealthStatus(): void {
+    const now = Date.now();
+    const timeSinceLastError = now - this.lastErrorTime;
+    
+    // Reset error count if no errors for 30 seconds
+    if (timeSinceLastError > 30000 && this.errorCount > 0) {
+      this.errorCount = Math.max(0, this.errorCount - 1);
+    }
+    
+    // Update health status
+    if (this.errorCount === 0) {
+      this.healthStatus = 'healthy';
+      this.recoveryMode = false;
+    } else if (this.errorCount < this.maxErrors / 2) {
+      this.healthStatus = 'degraded';
+    } else {
+      this.healthStatus = 'critical';
+    }
+  }
+
+
+
+  private startHealthMonitoring(): void {
+    if (this.healthCheckInterval) {
+      clearInterval(this.healthCheckInterval);
+    }
+    
+    this.healthCheckInterval = setInterval(() => {
+      this.checkHealthStatus();
+      this.performHealthChecks();
+    }, 5000); // Check every 5 seconds
+  }
+
+  private stopHealthMonitoring(): void {
+    if (this.healthCheckInterval) {
+      clearInterval(this.healthCheckInterval);
+      this.healthCheckInterval = null;
+    }
+  }
+
+  private performHealthChecks(): void {
+    // Check render system health
+    if (this.isRendering && Date.now() - this.lastRenderTime > 10000) {
+      this.addToRenderBuffer('Render system appears stuck, attempting recovery');
+      this.recoverFromRenderError();
+    }
+    
+    // Check for memory leaks in render buffer
+    if (this.renderBuffer.length > this.bufferSize * 0.9) {
+      this.addToRenderBuffer('Render buffer near capacity, clearing old entries');
+      this.renderBuffer = this.renderBuffer.slice(-this.bufferSize / 2);
+    }
+    
+    // Check screen health
+    if (this.screen && !this.screen.focused) {
+      this.addToRenderBuffer('Screen lost focus, attempting to restore');
+      this.scheduleRender(() => {
+        // Screen focus restoration
+      });
+    }
+  }
+
+  private getHealthReport(): {
+    status: string;
+    errorCount: number;
+    lastErrorTime: number;
+    renderStats: any;
+    recoveryMode: boolean;
+  } {
+    return {
+      status: this.healthStatus,
+      errorCount: this.errorCount,
+      lastErrorTime: this.lastErrorTime,
+      renderStats: this.getRenderStats(),
+      recoveryMode: this.recoveryMode
+    };
+  }
+
+  private applyRefreshFixes(): void {
+    try {
+      console.log('🔧 Applying refresh fixes...');
+      this.refreshFix.applyFixes(this);
+      
+      // Apply status bar fixes specifically
+      this.statusBarFix.fixStatusBarProviderInfo(this);
+      
+      // Force provider state synchronization
+      this.syncProviderState();
+      
+      // Force status bar update
+      this.updateStatus();
+      
+      console.log('✅ Refresh fixes applied successfully');
+    } catch (error) {
+      console.error('Error applying refresh fixes:', error);
+      this.showError('Failed to apply refresh fixes');
+    }
+  }
+
+  private syncProviderState(): void {
+    try {
+      // Get current provider from provider manager
+      const currentProvider = this.providerManager.getCurrentProvider?.() || 'file';
+      
+      // Update left and right provider if they're out of sync
+      if (this.leftProvider !== currentProvider) {
+        console.log(`Syncing left provider: ${this.leftProvider} -> ${currentProvider}`);
+        this.leftProvider = currentProvider;
+      }
+      
+      if (this.rightProvider !== currentProvider) {
+        console.log(`Syncing right provider: ${this.rightProvider} -> ${currentProvider}`);
+        this.rightProvider = currentProvider;
+      }
+
+      // Validate URI consistency
+      this.validateUriConsistency();
+      
+    } catch (error) {
+      console.error('Error syncing provider state:', error);
+    }
+  }
+
+  private validateUriConsistency(): void {
+    // Check left pane URI consistency
+    if (this.leftProvider === 'file' && !this.leftUri.startsWith('file://') && !this.leftUri.startsWith('/')) {
+      console.warn('Left URI inconsistent with file provider, fixing...');
+      this.leftUri = this.leftUri.startsWith('file://') ? this.leftUri : `file://${this.leftUri}`;
+    }
+
+    // Check right pane URI consistency
+    if (this.rightProvider === 'file' && !this.rightUri.startsWith('file://') && !this.rightUri.startsWith('/')) {
+      console.warn('Right URI inconsistent with file provider, fixing...');
+      this.rightUri = this.rightUri.startsWith('file://') ? this.rightUri : `file://${this.rightUri}`;
+    }
+
+    // Check cloud provider URI consistency
+    const cloudProviders = ['s3', 'gcs', 'az', 'aifs'];
+    if (cloudProviders.includes(this.leftProvider) && !this.leftUri.includes('://')) {
+      console.warn(`Left URI inconsistent with ${this.leftProvider} provider, fixing...`);
+      this.leftUri = `${this.leftProvider}://${this.leftUri}`;
+    }
+
+    if (cloudProviders.includes(this.rightProvider) && !this.rightUri.includes('://')) {
+      console.warn(`Right URI inconsistent with ${this.rightProvider} provider, fixing...`);
+      this.rightUri = `${this.rightProvider}://${this.rightUri}`;
+    }
   }
 
   private flushRenderQueue(): void {
@@ -304,8 +592,7 @@ export class TuiApplication {
           callback();
           this.addToRenderBuffer(`Render operation ${index + 1} completed`);
         } catch (error) {
-          console.error('Render callback error:', error);
-          this.addToRenderBuffer(`Render operation ${index + 1} failed: ${error}`);
+          this.handleError(error as Error, 'render');
         }
       });
       
@@ -317,8 +604,7 @@ export class TuiApplication {
           this.screen.render();
           this.addToRenderBuffer('Screen render completed successfully');
         } catch (renderError) {
-          console.error('Screen render error:', renderError);
-          this.addToRenderBuffer(`Screen render failed: ${renderError}`);
+          this.handleError(renderError as Error, 'render');
         }
       }
       
@@ -330,8 +616,7 @@ export class TuiApplication {
       this.addToRenderBuffer(`Render queue flush completed in ${renderDuration}ms`);
       
     } catch (error) {
-      console.error('Render error:', error);
-      this.addToRenderBuffer(`Render queue flush failed: ${error}`);
+      this.handleError(error as Error, 'render');
     } finally {
       this.isRendering = false;
       this.renderState = 'idle';
@@ -792,8 +1077,7 @@ export class TuiApplication {
       });
       
     } catch (error) {
-      console.error(`Error loading directory ${uri}:`, error);
-      this.showError(`Failed to load directory: ${(error as Error).message}`);
+      this.handleError(error as Error, 'directory-load');
       throw error; // Re-throw to be handled by caller
     }
   }
@@ -913,6 +1197,25 @@ export class TuiApplication {
         if (key.ctrl || key.meta) {
           // Debug render state
           this.debugRenderState();
+        }
+        break;
+      case 'h':
+        if (key.ctrl || key.meta) {
+          // Show health report
+          const healthReport = this.getHealthReport();
+          console.log('🏥 Health Report:');
+          console.log(`   Status: ${healthReport.status}`);
+          console.log(`   Error count: ${healthReport.errorCount}`);
+          console.log(`   Recovery mode: ${healthReport.recoveryMode}`);
+          console.log(`   Last error: ${new Date(healthReport.lastErrorTime).toISOString()}`);
+          console.log(`   Render queue: ${healthReport.renderStats.queueSize}`);
+          console.log(`   Render state: ${healthReport.renderStats.renderState}`);
+        }
+        break;
+      case 'f':
+        if (key.ctrl || key.meta) {
+          // Apply refresh fixes
+          this.applyRefreshFixes();
         }
         break;
     }
@@ -1321,10 +1624,28 @@ export class TuiApplication {
     });
   }
 
-  private showError(message: string): void {
+  private showError(message: string, context?: string): void {
     if (!this.statusBar) return;
     
-    this.statusBar.content = `ERROR: ${message}`;
+    // Enhanced error message with context and suggestions
+    let enhancedMessage = `ERROR: ${message}`;
+    
+    if (context) {
+      enhancedMessage += ` [${context}]`;
+    }
+    
+    // Add actionable suggestions based on error type
+    if (message.includes('directory')) {
+      enhancedMessage += ' - Try navigating to a different directory';
+    } else if (message.includes('provider')) {
+      enhancedMessage += ' - Check provider configuration (F9)';
+    } else if (message.includes('render')) {
+      enhancedMessage += ' - Try refreshing (R) or restarting';
+    } else if (message.includes('network') || message.includes('connection')) {
+      enhancedMessage += ' - Check network connection and credentials';
+    }
+    
+    this.statusBar.content = enhancedMessage;
     this.statusBar.style.fg = 'white';
     this.statusBar.style.bg = 'red';
     this.statusBar.style.bold = true;
@@ -1339,7 +1660,7 @@ export class TuiApplication {
       this.statusBar!.style.bg = 'dark-gray';
       this.statusBar!.style.bold = true;
       this.updateStatus();
-    }, 3000);
+    }, 8000); // Longer timeout for enhanced messages
   }
 
   private showHelp(): void {
@@ -1467,6 +1788,9 @@ Press any key to close this help.
 
   private async quit(): Promise<void> {
     try {
+      // Stop health monitoring
+      this.stopHealthMonitoring();
+      
       // Save current state before exiting
       await this.stateManager.saveState(
         this.leftUri,
