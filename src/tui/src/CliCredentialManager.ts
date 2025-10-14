@@ -37,6 +37,13 @@ export class CliCredentialManager {
       this.loadAzureCredentials()
     ]);
     
+    // Debug logging (remove in production)
+    // console.log('CLI Credentials loaded:', {
+    //   aws: !!this.credentials.aws,
+    //   gcp: !!this.credentials.gcp,
+    //   azure: !!this.credentials.azure
+    // });
+    
     return this.credentials;
   }
 
@@ -47,20 +54,25 @@ export class CliCredentialManager {
       const credentialsPath = path.join(os.homedir(), '.aws', 'credentials');
       const configPath = path.join(os.homedir(), '.aws', 'config');
       
-      // Check if AWS CLI is configured
+      // Check if AWS CLI is configured - only credentials file is required
       const hasCredentials = await this.fileExists(credentialsPath);
       const hasConfig = await this.fileExists(configPath);
       
-      if (hasCredentials && hasConfig) {
+      if (hasCredentials) {
         const credentials = await this.parseAwsCredentials(credentialsPath, awsProfile);
-        const config = await this.parseAwsConfig(configPath, awsProfile);
+        let config = null;
         
-        if (credentials && config) {
+        // Try to load config file if it exists
+        if (hasConfig) {
+          config = await this.parseAwsConfig(configPath, awsProfile);
+        }
+        
+        if (credentials && credentials.aws_access_key_id && credentials.aws_secret_access_key) {
           this.credentials.aws = {
-            accessKeyId: credentials.accessKeyId,
-            secretAccessKey: credentials.secretAccessKey,
-            region: config.region || 'us-east-1',
-            sessionToken: credentials.sessionToken
+            accessKeyId: credentials.aws_access_key_id,
+            secretAccessKey: credentials.aws_secret_access_key,
+            region: config?.region || credentials.region || process.env.AWS_DEFAULT_REGION || 'us-east-1',
+            sessionToken: credentials.aws_session_token
           };
         }
       }

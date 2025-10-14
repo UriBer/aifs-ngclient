@@ -187,7 +187,21 @@ export class ConfigManager {
       throw new Error(`Provider ${scheme} not found`);
     }
     
-    config.providers[providerIndex] = { ...config.providers[providerIndex], ...updates };
+    // Merge with existing configuration, especially credentials
+    const existingProvider = config.providers[providerIndex];
+    config.providers[providerIndex] = {
+      ...existingProvider,
+      ...updates,
+      credentials: {
+        ...existingProvider.credentials,
+        ...(updates.credentials || {})
+      },
+      settings: {
+        ...existingProvider.settings,
+        ...(updates.settings || {})
+      }
+    };
+    
     await this.saveConfig(config);
   }
 

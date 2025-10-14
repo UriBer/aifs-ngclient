@@ -139,31 +139,15 @@ export class ConfigUI {
     this.providerList.on('select', async (_item, index) => {
       const config = await this.configManager.loadConfig();
       
-      // Define all available providers in the same order as loadProviders
-      const allProviders = [
-        { name: 'Local File System', scheme: 'file' },
-        { name: 'Amazon S3', scheme: 's3' },
-        { name: 'Google Cloud Storage', scheme: 'gcs' },
-        { name: 'Azure Blob Storage', scheme: 'az' },
-        { name: 'AIFS', scheme: 'aifs' }
-      ];
-
-      const selectedProvider = allProviders[index];
+      // Get the selected provider directly from the config
+      const selectedProvider = config.providers[index];
       
-      // Find or create the provider config
-      let providerConfig = config.providers.find(p => p.scheme === selectedProvider.scheme);
-      if (!providerConfig) {
-        // Create a new provider config if it doesn't exist
-        providerConfig = {
-          name: selectedProvider.name,
-          scheme: selectedProvider.scheme,
-          enabled: false,
-          credentials: {},
-          settings: {}
-        };
+      if (!selectedProvider) {
+        console.warn('No provider found at index:', index);
+        return;
       }
       
-      this.currentProvider = providerConfig;
+      this.currentProvider = selectedProvider;
       await this.showProviderForm();
       
       // Transfer focus to formBox for action key handling
@@ -195,26 +179,22 @@ export class ConfigUI {
     const config = await this.configManager.loadConfig();
     this.providerList.clearItems();
 
-    // Define all available providers
-    const allProviders = [
-      { name: 'Local File System', scheme: 'file' },
-      { name: 'Amazon S3', scheme: 's3' },
-      { name: 'Google Cloud Storage', scheme: 'gcs' },
-      { name: 'Azure Blob Storage', scheme: 'az' },
-      { name: 'AIFS', scheme: 'aifs' }
-    ];
-
-    // Create a map of configured providers for quick lookup
-    const configuredProviders = new Map();
+    // Show all configured providers (including multiple with same scheme)
     for (const provider of config.providers) {
-      configuredProviders.set(provider.scheme, provider);
+      const status = provider.enabled ? '✓' : '✗';
+      const schemeIcon = this.getSchemeIcon(provider.scheme);
+      this.providerList.addItem(`${status} ${schemeIcon} ${provider.name}`);
     }
+  }
 
-    // Add all providers to the list
-    for (const provider of allProviders) {
-      const configured = configuredProviders.get(provider.scheme);
-      const status = configured?.enabled ? '✓' : '✗';
-      this.providerList.addItem(`${status} ${provider.name}`);
+  private getSchemeIcon(scheme: string): string {
+    switch (scheme) {
+      case 'file': return '📁';
+      case 's3': return '☁️';
+      case 'gcs': return '🌐';
+      case 'az': return '🔷';
+      case 'aifs': return '🤖';
+      default: return '❓';
     }
   }
 

@@ -31,6 +31,9 @@ npm install aifs-commander-tui
 # Start the TUI
 aifs-tui
 
+# Auto-configure from CLI credentials
+aifs-tui --auto-configure-cli
+
 # Show help
 aifs-tui --help
 
@@ -40,6 +43,30 @@ aifs-tui --config ./my-config.json
 # Show version
 aifs-tui --version
 ```
+
+### Auto-Configuration from CLI
+
+The TUI can automatically configure providers from your existing CLI credentials:
+
+```bash
+# Configure your CLI credentials first
+aws configure                    # AWS CLI
+gcloud auth application-default login  # Google Cloud CLI
+az login                        # Azure CLI
+
+# Then run with auto-configuration
+aifs-tui --auto-configure-cli
+
+# Or use environment variable
+AUTO_CONFIGURE_CLI=1 aifs-tui
+```
+
+This will automatically:
+- Detect AWS CLI credentials and configure S3 provider
+- Detect GCP CLI credentials and configure GCS provider
+- Detect Azure CLI credentials and configure Azure provider
+- Merge with existing configurations
+- Use default bucket/container names if not specified
 
 ### Programmatic Usage
 ```typescript
@@ -128,7 +155,7 @@ The TUI can be configured through a JSON file or environment variables:
 
 ### Building from Source
 ```bash
-git clone https://github.com/aifs-ngclient/aifs-commander.git
+git clone https://github.com/UriBer/aifs-ngclient.git
 cd aifs-commander-tui
 npm install
 npm run build
@@ -191,6 +218,6 @@ MIT License - see LICENSE file for details.
 
 ## Support
 
-- GitHub Issues: https://github.com/aifs-ngclient/aifs-commander/issues
-- Documentation: https://github.com/aifs-ngclient/aifs-commander#readme
-- Email: team@aifs.dev
+- GitHub Issues: https://github.com/UriBer/aifs-ngclient/issues
+- Documentation: https://github.com/UriBer/aifs-ngclient#readme
+- Email: urib@even-derech-it.com

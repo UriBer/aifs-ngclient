@@ -93,6 +93,15 @@ Launch the command-line interface:
 aifs-tui
 ```
 
+**Auto-Configuration from CLI:**
+```bash
+# Auto-configure providers from CLI credentials
+aifs-tui --auto-configure-cli
+
+# Or use environment variable
+AUTO_CONFIGURE_CLI=1 aifs-tui
+```
+
 **Navigation:**
 - `↑/↓`: Navigate files
 - `Enter`: Open file/enter directory
@@ -107,6 +116,33 @@ aifs-tui
 ## ⚙️ Configuration
 
 ### Provider Setup
+
+#### Auto-Configuration from CLI
+
+The easiest way to configure providers is using your existing CLI credentials:
+
+```bash
+# Configure AWS CLI
+aws configure
+
+# Configure Google Cloud CLI
+gcloud auth application-default login
+
+# Configure Azure CLI
+az login
+
+# Then run TUI with auto-configuration
+aifs-tui --auto-configure-cli
+```
+
+This will automatically:
+- Detect your AWS CLI credentials and configure S3 provider
+- Detect your GCP CLI credentials and configure GCS provider  
+- Detect your Azure CLI credentials and configure Azure provider
+- Merge with any existing manual configurations
+- Use default bucket/container names if not specified
+
+#### Manual Configuration
 
 1. **AWS S3**:
    - Use AWS CLI: `aws configure`
@@ -235,7 +271,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ## 🔗 Links
 
 - **Repository**: [https://github.com/UriBer/aifs-ngclient](https://github.com/UriBer/aifs-ngclient)
-- **TUI Package**: [https://www.npmjs.com/package/aifs-commander-tui](https://www.npmjs.com/package/aifs-commander-tui) (when published)
+- **TUI Package**: [https://www.npmjs.com/package/aifs-commander-tui](https://www.npmjs.com/package/aifs-commander-tui) 
 - **Issues**: [https://github.com/UriBer/aifs-ngclient/issues](https://github.com/UriBer/aifs-ngclient/issues)
 - **Documentation**: [https://github.com/UriBer/aifs-ngclient#readme](https://github.com/UriBer/aifs-ngclient#readme)
 

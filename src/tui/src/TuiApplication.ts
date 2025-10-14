@@ -7,6 +7,7 @@ import { ProviderManager } from './ProviderManager.js';
 import { StateManager } from './StateManager.js';
 import { ConfigUI } from './ConfigUI.js';
 import { ConfigManager } from './ConfigManager.js';
+import { CliCredentialManager } from './CliCredentialManager.js';
 
 export class TuiApplication {
   private screen: blessed.Widgets.Screen | null = null;
@@ -68,6 +69,12 @@ export class TuiApplication {
       
     // Load provider configuration
     await this.loadProviderConfiguration();
+
+    // Auto-configure providers from CLI credentials if enabled
+    const shouldAutoConfig = process.env.AUTO_CONFIGURE_CLI === '1';
+    if (shouldAutoConfig) {
+      await this.autoConfigureProvidersFromCli();
+    }
 
     // Load initial directories
     await this.loadDirectory('left', this.leftUri, this.leftSelected);
@@ -521,6 +528,102 @@ export class TuiApplication {
       }
     } catch (error) {
       console.warn('Failed to load provider configuration:', (error as Error).message);
+    }
+  }
+
+  private async autoConfigureProvidersFromCli(): Promise<void> {
+    try {
+      const cliManager = new CliCredentialManager();
+      await cliManager.loadAllCredentials();
+      const cliCreds = cliManager.getCredentials();
+      
+      // Auto-configure AWS S3 - Create separate config
+      if (cliManager.hasAwsCredentials() && cliCreds.aws) {
+        const configName = `AWS S3 (${cliCreds.aws.region || 'default'})`;
+        await this.createNewProviderConfig('s3', configName, {
+          accessKeyId: cliCreds.aws.accessKeyId,
+          secretAccessKey: cliCreds.aws.secretAccessKey,
+          region: cliCreds.aws.region || 'us-east-1',
+          bucket: 'default-bucket'
+        });
+      }
+      
+      // Auto-configure GCP - Create separate config
+      if (cliManager.hasGcpCredentials() && cliCreds.gcp) {
+        const configName = `Google Cloud Storage (${cliCreds.gcp.projectId})`;
+        await this.createNewProviderConfig('gcs', configName, {
+          projectId: cliCreds.gcp.projectId,
+          keyFilename: cliCreds.gcp.keyFilename || '',
+          bucket: `${cliCreds.gcp.projectId}-bucket`
+        });
+      }
+      
+      // Auto-configure Azure - Create separate config
+      if (cliManager.hasAzureCredentials() && cliCreds.azure) {
+        const configName = `Azure Blob Storage (${cliCreds.azure.subscriptionId?.substring(0, 8)}...)`;
+        await this.createNewProviderConfig('az', configName, {
+          subscriptionId: cliCreds.azure.subscriptionId,
+          tenantId: cliCreds.azure.tenantId,
+          clientId: cliCreds.azure.clientId,
+          containerName: 'default-container'
+        });
+      }
+      
+      // Reload configuration after auto-config
+      await this.loadProviderConfiguration();
+    } catch (error) {
+      console.warn('Failed to auto-configure from CLI:', (error as Error).message);
+    }
+  }
+
+  private async createNewProviderConfig(scheme: string, name: string, credentials: Record<string, string>): Promise<void> {
+    try {
+      const config = await this.configManager.loadConfig();
+      
+      // Check if a config with this name already exists
+      const existingIndex = config.providers.findIndex(p => p.name === name);
+      
+      if (existingIndex >= 0) {
+        // Update existing config with same name
+        config.providers[existingIndex] = {
+          ...config.providers[existingIndex],
+          scheme,
+          name,
+          enabled: true,
+          credentials: {
+            ...config.providers[existingIndex].credentials,
+            ...credentials
+          }
+        };
+      } else {
+        // Create new provider config
+        const newProvider: any = {
+          name,
+          scheme,
+          enabled: true,
+          credentials,
+          settings: {}
+        };
+        
+        // Add provider-specific settings
+        switch (scheme) {
+          case 's3':
+            newProvider.settings = { endpoint: '', useSSL: true };
+            break;
+          case 'gcs':
+            newProvider.settings = { location: 'US' };
+            break;
+          case 'az':
+            newProvider.settings = { endpoint: '' };
+            break;
+        }
+        
+        config.providers.push(newProvider);
+      }
+      
+      await this.configManager.saveConfig(config);
+    } catch (error) {
+      console.warn(`Failed to create provider config for ${name}:`, (error as Error).message);
     }
   }
 

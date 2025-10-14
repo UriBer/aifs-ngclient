@@ -3,7 +3,6 @@
   "version": "1.0.0",
   "description": "Terminal User Interface for AIFS Commander",
   "main": "dist/index.js",
-  "type": "module",
   "scripts": {
     "start": "node dist/index.js",
     "dev": "tsc --watch",
