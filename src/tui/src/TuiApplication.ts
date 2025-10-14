@@ -37,6 +37,14 @@ export class TuiApplication {
   private dividerPosition: number = 50; // Percentage of screen width
   private overlayMode: boolean = true; // Toggle between overlay and full screen
   private terminalOverlayActive: boolean = false;
+  private terminalSupportsUnicode: boolean = false;
+  private renderQueue: (() => void)[] = [];
+  private renderTimeout: NodeJS.Timeout | null = null;
+  private isRendering: boolean = false;
+  private renderBuffer: string[] = [];
+  private bufferSize: number = 1000;
+  private lastRenderTime: number = 0;
+  private renderState: 'idle' | 'rendering' | 'queued' = 'idle';
 
   constructor(_options?: TuiApplicationOptions) {
     this.providerManager = new ProviderManager();
@@ -46,7 +54,7 @@ export class TuiApplication {
 
   async start(): Promise<void> {
     try {
-      // Check terminal size (be more lenient)
+      // Check terminal size first
       const rows = process.stdout.rows || parseInt(process.env.LINES || '24');
       const cols = process.stdout.columns || parseInt(process.env.COLUMNS || '80');
       
@@ -56,20 +64,48 @@ export class TuiApplication {
         process.exit(1);
       }
 
-      // Load saved state
-      const savedState = await this.stateManager.loadState();
-      if (savedState) {
-        this.leftUri = savedState.leftUri;
-        this.rightUri = savedState.rightUri;
-        this.leftSelected = savedState.leftSelectedIndex;
-        this.rightSelected = savedState.rightSelectedIndex;
-      }
-
-    this.initializeScreen();
-    this.clearScreen();
-    this.initializeLayout();
-    this.setupEventHandlers();
+      // Initialize screen first
+      this.initializeScreen();
       
+      // Detect terminal Unicode support
+      this.detectTerminalCapabilities();
+      
+      // Show loading state immediately
+      this.showLoadingState();
+      
+      // Load all data asynchronously
+      await this.loadAllInitialData();
+      
+      // Initialize layout after data is loaded
+      this.initializeLayout();
+      this.setupEventHandlers();
+      
+      // Load directories with proper error handling
+      await this.loadInitialDirectories();
+      
+      // Create terminal overlay after all debug messages are written
+      this.createTerminalOverlay();
+      
+      // Final render only after everything is ready
+      this.hideLoadingState();
+      this.screen!.render();
+      
+    } catch (error) {
+      console.error('Failed to start TUI:', error);
+      process.exit(1);
+    }
+  }
+
+  private async loadAllInitialData(): Promise<void> {
+    // Load saved state
+    const savedState = await this.stateManager.loadState();
+    if (savedState) {
+      this.leftUri = savedState.leftUri;
+      this.rightUri = savedState.rightUri;
+      this.leftSelected = savedState.leftSelectedIndex;
+      this.rightSelected = savedState.rightSelectedIndex;
+    }
+
     // Load provider configuration
     await this.loadProviderConfiguration();
 
@@ -78,22 +114,345 @@ export class TuiApplication {
     if (shouldAutoConfig) {
       await this.autoConfigureProvidersFromCli();
     }
+  }
 
-    // Load initial directories
-    await this.loadDirectory('left', this.leftUri, this.leftSelected);
-    await this.loadDirectory('right', this.rightUri, this.rightSelected);
-    
-    // Create terminal overlay after all debug messages are written
-    this.createTerminalOverlay();
-    
-    // Force complete screen render
-    this.screen!.render();
+  private async loadInitialDirectories(): Promise<void> {
+    try {
+      // Use progressive rendering for cloud buckets, regular for local
+      const leftIsCloud = !this.leftUri.startsWith('file://') && !this.leftUri.startsWith('/');
+      const rightIsCloud = !this.rightUri.startsWith('file://') && !this.rightUri.startsWith('/');
       
+      if (leftIsCloud || rightIsCloud) {
+        // Use progressive rendering for cloud buckets
+        await Promise.all([
+          leftIsCloud ? this.loadDirectoryProgressive('left', this.leftUri, this.leftSelected) : this.loadDirectory('left', this.leftUri, this.leftSelected),
+          rightIsCloud ? this.loadDirectoryProgressive('right', this.rightUri, this.rightSelected) : this.loadDirectory('right', this.rightUri, this.rightSelected)
+        ]);
+      } else {
+        // Use regular loading for local directories
+        await Promise.all([
+          this.loadDirectory('left', this.leftUri, this.leftSelected),
+          this.loadDirectory('right', this.rightUri, this.rightSelected)
+        ]);
+      }
     } catch (error) {
-      console.error('Failed to start TUI:', error);
-      process.exit(1);
+      this.showError(`Failed to load directories: ${(error as Error).message}`);
     }
   }
+
+  private showLoadingState(): void {
+    if (!this.screen) return;
+    
+    blessed.box({
+      parent: this.screen,
+      top: 'center',
+      left: 'center',
+      width: 40,
+      height: 7,
+      content: 'Loading AIFS Commander...\n\nInitializing providers...\nLoading directories...',
+      border: 'line',
+      style: {
+        fg: 'white',
+        bg: 'blue',
+        border: {
+          fg: 'bright-blue'
+        }
+      },
+      tags: true
+    });
+    
+    this.screen.render();
+  }
+
+  private hideLoadingState(): void {
+    if (!this.screen) return;
+    
+    // Remove all loading boxes
+    this.screen.children.forEach(child => {
+      if (child.type === 'box' && (child as any).content && (child as any).content.includes('Loading AIFS Commander')) {
+        child.detach();
+      }
+    });
+  }
+
+  private detectTerminalCapabilities(): void {
+    // Check if terminal supports Unicode properly
+    try {
+      // Check environment variables that indicate Unicode support
+      const lcAll = process.env.LC_ALL || process.env.LANG || '';
+      const term = process.env.TERM || '';
+      
+      // Check for explicit ASCII-only environments
+      const isAsciiOnly = (
+        lcAll.toLowerCase() === 'c' ||
+        lcAll.toLowerCase() === 'posix' ||
+        term.toLowerCase() === 'dumb' ||
+        term.toLowerCase() === 'vt100' ||
+        term.toLowerCase() === 'vt220' ||
+        process.env.TERM_PROGRAM === 'unknown'
+      );
+      
+      if (isAsciiOnly) {
+        this.terminalSupportsUnicode = false;
+        return;
+      }
+      
+      // Check if we're in a terminal that supports Unicode
+      this.terminalSupportsUnicode = (
+        lcAll.toLowerCase().includes('utf') ||
+        lcAll.toLowerCase().includes('utf8') ||
+        term.includes('xterm') ||
+        term.includes('screen') ||
+        term.includes('tmux') ||
+        process.env.TERM_PROGRAM === 'vscode' ||
+        process.env.TERM_PROGRAM === 'iTerm.app' ||
+        process.env.TERM_PROGRAM === 'Apple_Terminal'
+      );
+      
+      // If we can't determine from environment, assume Unicode support for modern terminals
+      if (!this.terminalSupportsUnicode && !isAsciiOnly) {
+        // For unknown terminals, assume Unicode support unless explicitly ASCII
+        this.terminalSupportsUnicode = true;
+      }
+      
+    } catch (error) {
+      // If detection fails, assume no Unicode support
+      this.terminalSupportsUnicode = false;
+    }
+  }
+
+  private getFileIcon(item: FileItem): string {
+    if (this.terminalSupportsUnicode) {
+      return item.isDirectory ? '📁' : '📄';
+    } else {
+      // ASCII fallbacks
+      return item.isDirectory ? '[DIR]' : '[FILE]';
+    }
+  }
+
+  private scheduleRender(callback: () => void): void {
+    // Add to render queue
+    this.renderQueue.push(callback);
+    this.renderState = 'queued';
+    
+    if (this.renderTimeout) {
+      clearTimeout(this.renderTimeout);
+    }
+    
+    // Debounce renders to ~60fps (16ms)
+    this.renderTimeout = setTimeout(() => {
+      this.flushRenderQueue();
+    }, 16);
+  }
+
+  private addToRenderBuffer(message: string): void {
+    this.renderBuffer.push(`[${new Date().toISOString()}] ${message}`);
+    
+    // Keep buffer size manageable
+    if (this.renderBuffer.length > this.bufferSize) {
+      this.renderBuffer = this.renderBuffer.slice(-this.bufferSize);
+    }
+  }
+
+
+  private getRenderStats(): { 
+    queueSize: number; 
+    isRendering: boolean; 
+    renderState: string; 
+    bufferSize: number; 
+    lastRenderTime: number;
+    renderDuration: number;
+  } {
+    const now = Date.now();
+    const renderDuration = this.lastRenderTime > 0 ? now - this.lastRenderTime : 0;
+    
+    return {
+      queueSize: this.renderQueue.length,
+      isRendering: this.isRendering,
+      renderState: this.renderState,
+      bufferSize: this.renderBuffer.length,
+      lastRenderTime: this.lastRenderTime,
+      renderDuration: renderDuration
+    };
+  }
+
+  private debugRenderState(): void {
+    const stats = this.getRenderStats();
+    console.log('🔍 Render State Debug:');
+    console.log(`   Queue size: ${stats.queueSize}`);
+    console.log(`   Is rendering: ${stats.isRendering}`);
+    console.log(`   Render state: ${stats.renderState}`);
+    console.log(`   Buffer size: ${stats.bufferSize}`);
+    console.log(`   Last render: ${stats.lastRenderTime}`);
+    console.log(`   Render duration: ${stats.renderDuration}ms`);
+  }
+
+  private flushRenderQueue(): void {
+    if (this.renderQueue.length === 0 || this.isRendering) return;
+    
+    this.isRendering = true;
+    this.renderState = 'rendering';
+    const startTime = Date.now();
+    
+    try {
+      // Add to render buffer
+      this.addToRenderBuffer(`Starting render queue flush with ${this.renderQueue.length} operations`);
+      
+      // Execute all queued renders safely
+      this.renderQueue.forEach((callback, index) => {
+        try {
+          callback();
+          this.addToRenderBuffer(`Render operation ${index + 1} completed`);
+        } catch (error) {
+          console.error('Render callback error:', error);
+          this.addToRenderBuffer(`Render operation ${index + 1} failed: ${error}`);
+        }
+      });
+      
+      this.renderQueue = [];
+      
+      // Safe render with error handling
+      if (this.screen) {
+        try {
+          this.screen.render();
+          this.addToRenderBuffer('Screen render completed successfully');
+        } catch (renderError) {
+          console.error('Screen render error:', renderError);
+          this.addToRenderBuffer(`Screen render failed: ${renderError}`);
+        }
+      }
+      
+      // Update render timing
+      const endTime = Date.now();
+      const renderDuration = endTime - startTime;
+      this.lastRenderTime = endTime;
+      
+      this.addToRenderBuffer(`Render queue flush completed in ${renderDuration}ms`);
+      
+    } catch (error) {
+      console.error('Render error:', error);
+      this.addToRenderBuffer(`Render queue flush failed: ${error}`);
+    } finally {
+      this.isRendering = false;
+      this.renderState = 'idle';
+    }
+  }
+
+
+  private async loadDirectoryProgressive(pane: PaneType, uri: string, selectedIndex: number = 0): Promise<void> {
+    try {
+      console.log(`Loading directory for ${pane} pane: ${uri}`);
+      
+      // Show loading indicator immediately
+      this.scheduleRender(() => {
+        const paneList = pane === 'left' ? this.leftPane : this.rightPane;
+        if (paneList) {
+          paneList.setItems(['Loading...']);
+        }
+      });
+      
+      // Convert local path to file URI only if it's a local path
+      let finalUri = uri;
+      if (!uri.includes('://') && !uri.startsWith('file://')) {
+        finalUri = `file://${path.resolve(uri)}`;
+      }
+      
+      console.log(`Calling providerManager.list with URI: ${finalUri}`);
+      const result = await this.providerManager.list(finalUri);
+      console.log(`Received ${result.items.length} items from provider`);
+      
+      const items = result.items;
+      const paneList = pane === 'left' ? this.leftPane : this.rightPane;
+      
+      if (!paneList) {
+        console.error(`Pane list not found for ${pane}`);
+        return;
+      }
+      
+      // Progressive rendering: update UI in chunks
+      this.scheduleRender(() => {
+        paneList.clearItems();
+        
+        // Add parent directory if not at root
+        if (uri !== '/' && uri !== '') {
+          paneList.addItem('.. (parent directory)');
+        }
+      });
+      
+      // Calculate available width for this pane based on divider position
+      const screenWidth = this.screen!.width as number;
+      const paneWidth = pane === 'left' 
+        ? Math.floor((screenWidth * this.dividerPosition) / 100) - 2
+        : Math.floor((screenWidth * (100 - this.dividerPosition)) / 100) - 2;
+      
+      // Add directories first with progressive rendering
+      const dirs = items.filter(item => item.isDirectory);
+      for (let i = 0; i < dirs.length; i++) {
+        const dir = dirs[i];
+        const isSelected = pane === 'left' ? this.leftSelectedItems.has(dir.uri) : this.rightSelectedItems.has(dir.uri);
+        const prefix = isSelected ? '✓ ' : '  ';
+        const icon = this.getFileIcon(dir);
+        const displayName = this.truncateFileName(dir.name, paneWidth);
+        const suffix = this.terminalSupportsUnicode ? '/' : '/';
+        
+        // Schedule render for each directory
+        this.scheduleRender(() => {
+          paneList.addItem(`${prefix}${icon} ${displayName}${suffix}`);
+        });
+        
+        // Small delay for progressive effect
+        if (i % 5 === 0) {
+          await new Promise(resolve => setTimeout(resolve, 1));
+        }
+      }
+      
+      // Add files with progressive rendering
+      const files = items.filter(item => !item.isDirectory);
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        const isSelected = pane === 'left' ? this.leftSelectedItems.has(file.uri) : this.rightSelectedItems.has(file.uri);
+        const prefix = isSelected ? '✓ ' : '  ';
+        const icon = this.getFileIcon(file);
+        const size = file.size ? this.formatFileSize(file.size) : '';
+        const displayName = this.truncateFileName(file.name, paneWidth);
+        
+        // Schedule render for each file
+        this.scheduleRender(() => {
+          paneList.addItem(`${prefix}${icon} ${displayName} (${size})`);
+        });
+        
+        // Small delay for progressive effect
+        if (i % 10 === 0) {
+          await new Promise(resolve => setTimeout(resolve, 1));
+        }
+      }
+      
+      // Final setup
+      this.scheduleRender(() => {
+        if (pane === 'left') {
+          this.leftUri = uri;
+          this.leftItems = items;
+          this.leftSelected = Math.min(selectedIndex, (paneList as any).items.length - 1);
+          paneList.select(this.leftSelected);
+        } else {
+          this.rightUri = uri;
+          this.rightItems = items;
+          this.rightSelected = Math.min(selectedIndex, (paneList as any).items.length - 1);
+          paneList.select(this.rightSelected);
+        }
+        
+        // Save state after navigation
+        this.saveState();
+        this.updateStatus();
+      });
+      
+    } catch (error) {
+      console.error(`Error loading directory ${uri}:`, error);
+      this.showError(`Failed to load directory: ${(error as Error).message}`);
+      throw error;
+    }
+  }
+
 
   private initializeScreen(): void {
     this.screen = blessed.screen({
@@ -105,6 +464,8 @@ export class TuiApplication {
       warnings: false,
       fastCSR: true,
       sendFocus: true,
+      // Disable automatic rendering during initialization
+      autoRender: false,
       cursor: {
         artificial: true,
         shape: 'block',
@@ -113,9 +474,8 @@ export class TuiApplication {
       }
     });
 
-    // Always clear screen on startup
+    // Clear screen but don't render yet
     process.stdout.write('\x1b[2J\x1b[H');
-    this.screen.render();
 
     this.screen.on('resize', () => {
       this.handleResize();
@@ -126,13 +486,6 @@ export class TuiApplication {
     });
   }
 
-  private clearScreen(): void {
-    if (!this.screen) return;
-    
-    // Just clear and render - overlay handles visibility
-    process.stdout.write('\x1b[2J\x1b[H');
-    this.screen.render();
-  }
 
   private createTerminalOverlay(): void {
     if (this.terminalOverlayActive) return;
@@ -333,13 +686,13 @@ export class TuiApplication {
       this.updateStatus();
     });
 
-    this.leftPane.on('keypress', (ch, key) => {
-      this.handleKeyPress('left', ch, key);
+    this.leftPane.on('keypress', async (ch, key) => {
+      await this.handleKeyPress('left', ch, key);
     });
 
     // Add double-click support for left pane
-    this.leftPane.on('click', () => {
-      this.handleSelection('left', null, this.leftSelected);
+    this.leftPane.on('click', async () => {
+      await this.handleSelection('left', null, this.leftSelected);
     });
 
     // Right pane events
@@ -348,13 +701,13 @@ export class TuiApplication {
       this.updateStatus();
     });
 
-    this.rightPane.on('keypress', (ch, key) => {
-      this.handleKeyPress('right', ch, key);
+    this.rightPane.on('keypress', async (ch, key) => {
+      await this.handleKeyPress('right', ch, key);
     });
 
     // Add double-click support for right pane
-    this.rightPane.on('click', () => {
-      this.handleSelection('right', null, this.rightSelected);
+    this.rightPane.on('click', async () => {
+      await this.handleSelection('right', null, this.rightSelected);
     });
   }
 
@@ -399,8 +752,10 @@ export class TuiApplication {
       for (const dir of dirs) {
         const isSelected = pane === 'left' ? this.leftSelectedItems.has(dir.uri) : this.rightSelectedItems.has(dir.uri);
         const prefix = isSelected ? '✓ ' : '  ';
+        const icon = this.getFileIcon(dir);
         const displayName = this.truncateFileName(dir.name, paneWidth);
-        paneList.addItem(`${prefix}📁 ${displayName}/`);
+        const suffix = this.terminalSupportsUnicode ? '/' : '/';
+        paneList.addItem(`${prefix}${icon} ${displayName}${suffix}`);
       }
       
       // Add files
@@ -408,9 +763,10 @@ export class TuiApplication {
       for (const file of files) {
         const isSelected = pane === 'left' ? this.leftSelectedItems.has(file.uri) : this.rightSelectedItems.has(file.uri);
         const prefix = isSelected ? '✓ ' : '  ';
+        const icon = this.getFileIcon(file);
         const size = file.size ? this.formatFileSize(file.size) : '';
         const displayName = this.truncateFileName(file.name, paneWidth);
-        paneList.addItem(`${prefix}📄 ${displayName} (${size})`);
+        paneList.addItem(`${prefix}${icon} ${displayName} (${size})`);
       }
       
       if (pane === 'left') {
@@ -429,6 +785,11 @@ export class TuiApplication {
       this.saveState();
       
       this.updateStatus();
+      
+      // Schedule progressive render after directory loading
+      this.scheduleRender(() => {
+        // Directory loading is complete
+      });
       
     } catch (error) {
       console.error(`Error loading directory ${uri}:`, error);
@@ -477,7 +838,7 @@ export class TuiApplication {
     }
   }
 
-  private handleKeyPress(pane: PaneType, _ch: string, key: any): void {
+  private async handleKeyPress(pane: PaneType, _ch: string, key: any): Promise<void> {
     const paneList = pane === 'left' ? this.leftPane : this.rightPane;
     const currentSelected = pane === 'left' ? this.leftSelected : this.rightSelected;
     
@@ -485,7 +846,7 @@ export class TuiApplication {
     
     switch (key.name) {
       case 'enter':
-        this.handleSelection(pane, null, currentSelected);
+        await this.handleSelection(pane, null, currentSelected);
         break;
       case 'backspace':
         this.goToParent(pane);
@@ -516,7 +877,7 @@ export class TuiApplication {
         }
         break;
       case 'space':
-        this.toggleSelection(pane, currentSelected);
+        await this.toggleSelection(pane, currentSelected);
         break;
       case 'p':
         // Show provider menu for current pane
@@ -525,30 +886,39 @@ export class TuiApplication {
     }
   }
 
-  private handleGlobalKeyPress(_ch: string, key: any): void {
+  private async handleGlobalKeyPress(_ch: string, key: any): Promise<void> {
     switch (key.name) {
       case 'left':
         if (key.ctrl || key.meta) {
           // Resize divider left
-          this.resizeDivider(-5);
+          await this.resizeDivider(-5);
         }
         break;
       case 'right':
         if (key.ctrl || key.meta) {
           // Resize divider right
-          this.resizeDivider(5);
+          await this.resizeDivider(5);
         }
         break;
       case 'r':
         if (key.ctrl || key.meta) {
           // Reset divider to center
-          this.resizeDivider(0, true);
+          await this.resizeDivider(0, true);
+        } else {
+          // Manual refresh
+          this.forceRefresh();
+        }
+        break;
+      case 'd':
+        if (key.ctrl || key.meta) {
+          // Debug render state
+          this.debugRenderState();
         }
         break;
     }
   }
 
-  private resizeDivider(delta: number, reset: boolean = false): void {
+  private async resizeDivider(delta: number, reset: boolean = false): Promise<void> {
     if (reset) {
       this.dividerPosition = 50;
     } else {
@@ -562,16 +932,39 @@ export class TuiApplication {
       this.rightPane.width = `${100 - this.dividerPosition}%`;
       
       // Refresh both panes to recalculate truncation
-      this.refreshCurrentPanes();
+      await this.refreshCurrentPanes();
       
       this.showStatus(`Divider resized to ${this.dividerPosition}%`);
+      
+      // Schedule progressive render after divider resize
+      this.scheduleRender(() => {
+        // Divider resize is complete
+      });
     }
   }
 
   private async refreshCurrentPanes(): Promise<void> {
     // Refresh both panes to recalculate truncation with new widths
-    await this.loadDirectory('left', this.leftUri, this.leftSelected);
-    await this.loadDirectory('right', this.rightUri, this.rightSelected);
+    try {
+      await this.loadDirectory('left', this.leftUri, this.leftSelected);
+      await this.loadDirectory('right', this.rightUri, this.rightSelected);
+      
+      // Schedule progressive render after pane refresh
+      this.scheduleRender(() => {
+        // Pane refresh is complete
+      });
+    } catch (error) {
+      console.error('Error refreshing panes:', error);
+      this.showError(`Failed to refresh panes: ${(error as Error).message}`);
+    }
+  }
+
+  private forceRefresh(): void {
+    if (!this.screen) return;
+    
+    // Clear screen and force complete redraw
+    process.stdout.write('\x1b[2J\x1b[H');
+    this.screen.render();
   }
 
   private async showConfiguration(): Promise<void> {
@@ -789,7 +1182,7 @@ export class TuiApplication {
     }
   }
 
-  private toggleSelection(pane: PaneType, index: number): void {
+  private async toggleSelection(pane: PaneType, index: number): Promise<void> {
     const items = pane === 'left' ? this.leftItems : this.rightItems;
     const selectedItems = pane === 'left' ? this.leftSelectedItems : this.rightSelectedItems;
     const uri = pane === 'left' ? this.leftUri : this.rightUri;
@@ -817,10 +1210,15 @@ export class TuiApplication {
     }
     
     // Refresh the display to show selection
-    this.loadDirectory(pane, uri, index);
+    await this.loadDirectory(pane, uri, index);
     
     // Save state after selection change
     this.saveState();
+    
+    // Schedule progressive render after selection change
+    this.scheduleRender(() => {
+      // Selection change is complete
+    });
   }
 
   private async goToParent(pane: PaneType): Promise<void> {
@@ -869,7 +1267,11 @@ export class TuiApplication {
       this.leftPane.style.item.bold = false;
     }
     this.currentPane = pane;
-    this.screen!.render();
+    
+    // Schedule progressive render after focus change
+    this.scheduleRender(() => {
+      // Focus change is complete
+    });
   }
 
   private updateStatus(): void {
@@ -912,7 +1314,11 @@ export class TuiApplication {
     
     const overlayStatus = this.overlayMode ? 'Overlay' : 'Full';
     this.statusBar.content = `${leftInfo} | ${rightInfo} | ${selectionInfo}${selectionText} | Press P for provider, F9 for config, F1 for help, F12 for ${overlayStatus} mode, F10 to quit`;
-    this.screen!.render();
+    
+    // Schedule progressive render for status updates
+    this.scheduleRender(() => {
+      // Status update is complete
+    });
   }
 
   private showError(message: string): void {
@@ -922,7 +1328,11 @@ export class TuiApplication {
     this.statusBar.style.fg = 'white';
     this.statusBar.style.bg = 'red';
     this.statusBar.style.bold = true;
-    this.screen!.render();
+    
+    // Schedule progressive render for error display
+    this.scheduleRender(() => {
+      // Error display is complete
+    });
     
     setTimeout(() => {
       this.statusBar!.style.fg = 'white';
@@ -1034,9 +1444,9 @@ Press any key to close this help.
   }
 
   private handleResize(): void {
-    if (!this.statusBar) return;
+    if (!this.statusBar || !this.screen) return;
     
-    const { width, height } = this.screen!;
+    const { width, height } = this.screen;
     
     if ((width as number) < 80 || (height as number) < 20) {
       this.statusBar.content = 'Terminal too small. Please resize to at least 80x20';
@@ -1044,7 +1454,15 @@ Press any key to close this help.
     } else {
       this.statusBar.content = 'AIFS Commander TUI - Press F1 for help, F10 to quit';
       this.statusBar.style.bg = 'blue';
+      
+      // Refresh panes after resize to recalculate truncation
+      this.refreshCurrentPanes();
     }
+    
+    // Schedule progressive render after resize
+    this.scheduleRender(() => {
+      // Resize is complete
+    });
   }
 
   private async quit(): Promise<void> {
@@ -1083,9 +1501,9 @@ Press any key to close this help.
 
   private truncateFileName(name: string, availableWidth: number): string {
     // Calculate the actual available width for the filename
-    // Account for prefixes (✓, 📁/📄), spaces, and size info
+    // Account for prefixes (✓, icons), spaces, and size info
     const prefixLength = 3; // "✓ " or "  "
-    const iconLength = 2; // "📁" or "📄"
+    const iconLength = this.terminalSupportsUnicode ? 2 : 6; // "📁" (2) or "[DIR]" (6)
     const spaceAfterIcon = 1; // " "
     const spaceBeforeSize = 1; // " "
     const sizeInfoLength = 15; // Approximate size info like "(155.69 MB)"
@@ -1535,7 +1953,13 @@ Press any key to close this help.
       console.log(`Switching ${pane} pane to ${providerScheme}, loading URI: ${uri}`);
       
       try {
-        await this.loadDirectory(pane, uri, 0);
+        // Use progressive rendering for cloud providers
+        const isCloudProvider = ['s3', 'gcs', 'az', 'aifs'].includes(providerScheme);
+        if (isCloudProvider) {
+          await this.loadDirectoryProgressive(pane, uri, 0);
+        } else {
+          await this.loadDirectory(pane, uri, 0);
+        }
         this.showStatus(`Switched ${pane} pane to ${this.providerManager.getProviderInfo(providerScheme)?.displayName}`);
       } catch (loadError) {
         console.error(`Failed to load directory for ${providerScheme}:`, loadError);
@@ -1594,7 +2018,11 @@ Press any key to close this help.
     this.statusBar.style.fg = 'white';
     this.statusBar.style.bg = 'green';
     this.statusBar.style.bold = true;
-    this.screen!.render();
+    
+    // Schedule progressive render for status display
+    this.scheduleRender(() => {
+      // Status display is complete
+    });
     
     setTimeout(() => {
       this.statusBar!.style.fg = 'white';

@@ -10,11 +10,13 @@ export class ConfigUI {
   private providerList: blessed.Widgets.ListElement | null = null;
   private formBox: blessed.Widgets.BoxElement | null = null;
   private currentProvider: ProviderConfig | null = null;
+  private terminalSupportsUnicode: boolean = false;
 
   constructor(screen: blessed.Widgets.Screen) {
     this.screen = screen;
     this.configManager = new ConfigManager();
     this.cliCredentialManager = new CliCredentialManager();
+    this.detectTerminalCapabilities();
   }
 
   async showConfigMenu(): Promise<void> {
@@ -187,14 +189,72 @@ export class ConfigUI {
     }
   }
 
+  private detectTerminalCapabilities(): void {
+    // Check if terminal supports Unicode properly
+    try {
+      // Check environment variables that indicate Unicode support
+      const lcAll = process.env.LC_ALL || process.env.LANG || '';
+      const term = process.env.TERM || '';
+      
+      // Check for explicit ASCII-only environments
+      const isAsciiOnly = (
+        lcAll.toLowerCase() === 'c' ||
+        lcAll.toLowerCase() === 'posix' ||
+        term.toLowerCase() === 'dumb' ||
+        term.toLowerCase() === 'vt100' ||
+        term.toLowerCase() === 'vt220' ||
+        process.env.TERM_PROGRAM === 'unknown'
+      );
+      
+      if (isAsciiOnly) {
+        this.terminalSupportsUnicode = false;
+        return;
+      }
+      
+      // Check if we're in a terminal that supports Unicode
+      this.terminalSupportsUnicode = (
+        lcAll.toLowerCase().includes('utf') ||
+        lcAll.toLowerCase().includes('utf8') ||
+        term.includes('xterm') ||
+        term.includes('screen') ||
+        term.includes('tmux') ||
+        process.env.TERM_PROGRAM === 'vscode' ||
+        process.env.TERM_PROGRAM === 'iTerm.app' ||
+        process.env.TERM_PROGRAM === 'Apple_Terminal'
+      );
+      
+      // If we can't determine from environment, assume Unicode support for modern terminals
+      if (!this.terminalSupportsUnicode && !isAsciiOnly) {
+        // For unknown terminals, assume Unicode support unless explicitly ASCII
+        this.terminalSupportsUnicode = true;
+      }
+      
+    } catch (error) {
+      // If detection fails, assume no Unicode support
+      this.terminalSupportsUnicode = false;
+    }
+  }
+
   private getSchemeIcon(scheme: string): string {
-    switch (scheme) {
-      case 'file': return '📁';
-      case 's3': return '☁️';
-      case 'gcs': return '🌐';
-      case 'az': return '🔷';
-      case 'aifs': return '🤖';
-      default: return '❓';
+    if (this.terminalSupportsUnicode) {
+      switch (scheme) {
+        case 'file': return '📁';
+        case 's3': return '☁️';
+        case 'gcs': return '🌐';
+        case 'az': return '🔷';
+        case 'aifs': return '🤖';
+        default: return '❓';
+      }
+    } else {
+      // ASCII fallbacks
+      switch (scheme) {
+        case 'file': return '[LOCAL]';
+        case 's3': return '[S3]';
+        case 'gcs': return '[GCS]';
+        case 'az': return '[AZ]';
+        case 'aifs': return '[AIFS]';
+        default: return '[?]';
+      }
     }
   }
 

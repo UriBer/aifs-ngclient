@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 // Provider Connection Test Script
-import { ConfigManager } from './dist/ConfigManager.js';
+const { ConfigManager } = require('../src/tui/dist/ConfigManager.js');
 
 console.log('Provider Connection Test Script');
 console.log('================================');

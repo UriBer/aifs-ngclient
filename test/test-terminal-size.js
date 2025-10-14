@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 
 // Test script to verify terminal size message
-import { spawn } from 'child_process';
+const { spawn } = require('child_process');
 
 console.log('Testing terminal size message...');
 
 // Test with very small terminal size
-const child = spawn('node', ['dist/index.js'], {
+const child = spawn('node', ['src/tui/dist/index.js'], {
   cwd: process.cwd(),
   env: {
     ...process.env,
