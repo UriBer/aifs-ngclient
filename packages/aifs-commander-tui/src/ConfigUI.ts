@@ -111,7 +111,7 @@ export class ConfigUI {
     });
 
     // Add action key handlers to formBox
-    this.formBox.key(['e', 'c', 's', 't', 'd', 'a', 'E', 'C', 'S', 'T', 'D', 'A'], (ch, key) => {
+    this.formBox.key(['e', 'c', 's', 't', 'd', 'a', 'E', 'C', 'S', 'T', 'D', 'A'], (ch: string, key: any) => {
       this.handleKeyPress(ch, key);
     });
 
@@ -136,7 +136,7 @@ export class ConfigUI {
     await this.loadProviders();
 
     // Handle provider selection
-    this.providerList.on('select', async (_item, index) => {
+    this.providerList.on('select', async (_item: any, index: number) => {
       const config = await this.configManager.loadConfig();
       
       // Define all available providers in the same order as loadProviders
@@ -181,7 +181,7 @@ export class ConfigUI {
 
     // Handle action keys ONLY on the main configuration box
     // This ensures consistent behavior regardless of focus
-    this.mainBox.key(['e', 'c', 's', 't', 'd', 'a', 'E', 'C', 'S', 'T', 'D', 'A'], (ch, key) => {
+    this.mainBox.key(['e', 'c', 's', 't', 'd', 'a', 'E', 'C', 'S', 'T', 'D', 'A'], (ch: string, key: any) => {
       this.handleKeyPress(ch, key);
     });
 
@@ -459,14 +459,14 @@ export class ConfigUI {
 
   private hideMainTUI(): void {
     // Store references to main TUI elements
-    const leftPane = this.screen.children.find(child => 
-      child.type === 'list' && (child as any).name === 'leftPane'
+    const leftPane = this.screen.children.find((child: any) => 
+      child.type === 'list' && child.name === 'leftPane'
     ) as blessed.Widgets.Node;
-    const rightPane = this.screen.children.find(child => 
-      child.type === 'list' && (child as any).name === 'rightPane'
+    const rightPane = this.screen.children.find((child: any) => 
+      child.type === 'list' && child.name === 'rightPane'
     ) as blessed.Widgets.Node;
-    const statusBar = this.screen.children.find(child => 
-      child.type === 'box' && (child as any).name === 'statusBar'
+    const statusBar = this.screen.children.find((child: any) => 
+      child.type === 'box' && child.name === 'statusBar'
     ) as blessed.Widgets.Node;
 
     // Hide main TUI elements
@@ -477,14 +477,14 @@ export class ConfigUI {
 
   private showMainTUI(): void {
     // Show main TUI elements
-    const leftPane = this.screen.children.find(child => 
-      child.type === 'list' && (child as any).name === 'leftPane'
+    const leftPane = this.screen.children.find((child: any) => 
+      child.type === 'list' && child.name === 'leftPane'
     ) as blessed.Widgets.Node;
-    const rightPane = this.screen.children.find(child => 
-      child.type === 'list' && (child as any).name === 'rightPane'
+    const rightPane = this.screen.children.find((child: any) => 
+      child.type === 'list' && child.name === 'rightPane'
     ) as blessed.Widgets.Node;
-    const statusBar = this.screen.children.find(child => 
-      child.type === 'box' && (child as any).name === 'statusBar'
+    const statusBar = this.screen.children.find((child: any) => 
+      child.type === 'box' && child.name === 'statusBar'
     ) as blessed.Widgets.Node;
 
     if (leftPane) (leftPane as any).show();

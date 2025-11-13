@@ -1,9 +1,10 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { FileItem } from './types.js';
-import { S3Client, ListBucketsCommand } from '@aws-sdk/client-s3';
+import { S3Client, ListBucketsCommand, ListObjectsV2Command, CopyObjectCommand, DeleteObjectCommand, PutObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s3';
 import { Storage } from '@google-cloud/storage';
 import { BlobServiceClient } from '@azure/storage-blob';
+import { ConfigManager } from './ConfigManager.js';
 
 export interface ProviderInfo {
   name: string;
@@ -16,8 +17,13 @@ export interface ProviderInfo {
 export class ProviderManager {
   private currentProvider: string = 'file';
   private providers: Map<string, ProviderInfo> = new Map();
+  private configManager: ConfigManager | null = null;
+  private s3Client: S3Client | null = null;
+  private gcsClient: Storage | null = null;
+  private azClient: BlobServiceClient | null = null;
 
-  constructor() {
+  constructor(configManager?: ConfigManager) {
+    this.configManager = configManager || null;
     this.initializeProviders();
   }
 
@@ -218,7 +224,6 @@ export class ProviderManager {
         return { items };
       } else {
         // List objects in bucket
-        const { ListObjectsV2Command } = await import('@aws-sdk/client-s3');
         const command = new ListObjectsV2Command({
           Bucket: bucketName,
           Prefix: prefix,
@@ -399,24 +404,35 @@ export class ProviderManager {
   }
 
   async copy(srcUri: string, destUri: string): Promise<void> {
-    const srcPath = srcUri.startsWith('file://') ? srcUri.replace('file://', '') : srcUri;
-    const destPath = destUri.startsWith('file://') ? destUri.replace('file://', '') : destUri;
-    
-    try {
+    const srcScheme = this.getScheme(srcUri);
+    const destScheme = this.getScheme(destUri);
+    if (srcScheme === 'file' && destScheme === 'file') {
+      const srcPath = srcUri.startsWith('file://') ? srcUri.replace('file://', '') : srcUri;
+      const destPath = destUri.startsWith('file://') ? destUri.replace('file://', '') : destUri;
       const srcStats = await fs.stat(srcPath);
-      
       if (srcStats.isDirectory()) {
-        // Copy directory recursively
         await this.copyDirectory(srcPath, destPath);
       } else {
-        // Copy file
         const destDir = path.dirname(destPath);
         await fs.mkdir(destDir, { recursive: true });
         await fs.copyFile(srcPath, destPath);
       }
-    } catch (error) {
-      throw new Error(`Copy failed: ${(error as Error).message}`);
+      return;
     }
+    if (srcScheme === 's3' && destScheme === 's3') {
+      await this.copyS3ToS3(srcUri, destUri);
+      return;
+    }
+    if (srcScheme === 'gcs' && destScheme === 'gcs') {
+      await this.copyGcsToGcs(srcUri, destUri);
+      return;
+    }
+    if (srcScheme === 'az' && destScheme === 'az') {
+      await this.copyAzToAz(srcUri, destUri);
+      return;
+    }
+    const tmp = await this.downloadToTemp(srcUri);
+    await this.uploadFromPath(destUri, tmp);
   }
 
   private async copyDirectory(srcDir: string, destDir: string): Promise<void> {
@@ -437,41 +453,257 @@ export class ProviderManager {
   }
 
   async move(srcUri: string, destUri: string): Promise<void> {
-    const srcPath = srcUri.startsWith('file://') ? srcUri.replace('file://', '') : srcUri;
-    const destPath = destUri.startsWith('file://') ? destUri.replace('file://', '') : destUri;
-    
-    try {
+    const srcScheme = this.getScheme(srcUri);
+    const destScheme = this.getScheme(destUri);
+    if (srcScheme === 'file' && destScheme === 'file') {
+      const srcPath = srcUri.startsWith('file://') ? srcUri.replace('file://', '') : srcUri;
+      const destPath = destUri.startsWith('file://') ? destUri.replace('file://', '') : destUri;
       await fs.rename(srcPath, destPath);
-    } catch (error) {
-      throw new Error(`Move failed: ${(error as Error).message}`);
+      return;
     }
+    await this.copy(srcUri, destUri);
+    await this.delete(srcUri);
   }
 
   async delete(uri: string): Promise<void> {
-    const filePath = uri.startsWith('file://') ? uri.replace('file://', '') : uri;
-    
-    try {
+    const scheme = this.getScheme(uri);
+    if (scheme === 'file') {
+      const filePath = uri.startsWith('file://') ? uri.replace('file://', '') : uri;
       const stats = await fs.stat(filePath);
-      
       if (stats.isDirectory()) {
-        // Delete directory recursively
         await fs.rm(filePath, { recursive: true, force: true });
       } else {
-        // Delete file
         await fs.unlink(filePath);
       }
-    } catch (error) {
-      throw new Error(`Delete failed: ${(error as Error).message}`);
+      return;
     }
+    if (scheme === 's3') {
+      const { bucket, key } = this.parseS3(uri);
+      const client = await this.getS3Client();
+      await client.send(new DeleteObjectCommand({ Bucket: bucket!, Key: key! }));
+      return;
+    }
+    if (scheme === 'gcs') {
+      const { bucket, key } = this.parseGcs(uri);
+      const storage = await this.getGcsClient();
+      await storage.bucket(bucket!).file(key!).delete();
+      return;
+    }
+    if (scheme === 'az') {
+      const { container, key } = this.parseAz(uri);
+      const svc = await this.getAzClient();
+      await svc.getContainerClient(container!).deleteBlob(key!);
+      return;
+    }
+    throw new Error(`Unsupported scheme: ${scheme}`);
   }
 
   async mkdir(uri: string): Promise<void> {
-    const dirPath = uri.startsWith('file://') ? uri.replace('file://', '') : uri;
-    
-    try {
+    const scheme = this.getScheme(uri);
+    if (scheme === 'file') {
+      const dirPath = uri.startsWith('file://') ? uri.replace('file://', '') : uri;
       await fs.mkdir(dirPath, { recursive: true });
-    } catch (error) {
-      throw new Error(`Mkdir failed: ${(error as Error).message}`);
+      return;
     }
+    if (scheme === 's3') {
+      const { bucket, key } = this.parseS3(uri);
+      const client = await this.getS3Client();
+      const folderKey = key!.endsWith('/') ? key! : `${key!}/`;
+      await client.send(new PutObjectCommand({ Bucket: bucket!, Key: folderKey, Body: '' }));
+      return;
+    }
+    if (scheme === 'gcs') {
+      const { bucket, key } = this.parseGcs(uri);
+      const storage = await this.getGcsClient();
+      const folderKey = key!.endsWith('/') ? key! : `${key!}/`;
+      await storage.bucket(bucket!).file(folderKey).save('');
+      return;
+    }
+    if (scheme === 'az') {
+      const { container, key } = this.parseAz(uri);
+      const svc = await this.getAzClient();
+      const folderKey = key!.endsWith('/') ? key! : `${key!}/`;
+      await svc.getContainerClient(container!).getBlockBlobClient(folderKey).upload('', 0);
+      return;
+    }
+    throw new Error(`Unsupported scheme: ${scheme}`);
+  }
+
+  async exists(uri: string): Promise<boolean> {
+    const scheme = this.getScheme(uri);
+    if (scheme === 'file') {
+      try {
+        const filePath = uri.startsWith('file://') ? uri.replace('file://', '') : uri;
+        await fs.access(filePath);
+        return true;
+      } catch { return false; }
+    }
+    if (scheme === 's3') {
+      const { bucket, key } = this.parseS3(uri);
+      const client = await this.getS3Client();
+      try {
+        await client.send(new HeadObjectCommand({ Bucket: bucket!, Key: key! }));
+        return true;
+      } catch { return false; }
+    }
+    if (scheme === 'gcs') {
+      const { bucket, key } = this.parseGcs(uri);
+      const storage = await this.getGcsClient();
+      const [exists] = await storage.bucket(bucket!).file(key!).exists();
+      return exists;
+    }
+    if (scheme === 'az') {
+      const { container, key } = this.parseAz(uri);
+      const svc = await this.getAzClient();
+      const exists = await svc.getContainerClient(container!).getBlobClient(key!).exists();
+      return exists;
+    }
+    return false;
+  }
+
+  private getScheme(uri: string): string {
+    if (uri.startsWith('file://') || uri.startsWith('/')) return 'file';
+    const m = uri.match(/^([a-z]+):\/\//);
+    return m ? m[1] : 'file';
+  }
+
+  private parseS3(uri: string): { bucket?: string; key?: string } {
+    const m = uri.match(/^s3:\/\/([^\/]+)?\/?(.*)?$/);
+    return { bucket: m && m[1] ? m[1] : undefined, key: m && m[2] ? m[2] : undefined };
+  }
+  private parseGcs(uri: string): { bucket?: string; key?: string } {
+    const m = uri.match(/^gcs:\/\/([^\/]+)?\/?(.*)?$/);
+    return { bucket: m && m[1] ? m[1] : undefined, key: m && m[2] ? m[2] : undefined };
+  }
+  private parseAz(uri: string): { container?: string; key?: string } {
+    const m = uri.match(/^az:\/\/([^\/]+)?\/?(.*)?$/);
+    return { container: m && m[1] ? m[1] : undefined, key: m && m[2] ? m[2] : undefined };
+  }
+
+  private async getS3Client(): Promise<S3Client> {
+    if (this.s3Client) return this.s3Client;
+    const conf = this.configManager ? await this.configManager.getProviderConfig('s3') : null;
+    this.s3Client = new S3Client({
+      region: conf?.credentials.region || process.env.AWS_REGION || 'us-east-1',
+      credentials: conf?.credentials.accessKeyId && conf?.credentials.secretAccessKey ? {
+        accessKeyId: conf.credentials.accessKeyId,
+        secretAccessKey: conf.credentials.secretAccessKey
+      } : undefined,
+      endpoint: conf?.settings?.endpoint || undefined,
+      forcePathStyle: Boolean(conf?.settings?.endpoint)
+    });
+    return this.s3Client;
+  }
+  private async getGcsClient(): Promise<Storage> {
+    if (this.gcsClient) return this.gcsClient;
+    const conf = this.configManager ? await this.configManager.getProviderConfig('gcs') : null;
+    this.gcsClient = new Storage({
+      projectId: conf?.credentials.projectId || undefined,
+      keyFilename: conf?.credentials.keyFilename || undefined
+    });
+    return this.gcsClient;
+  }
+  private async getAzClient(): Promise<BlobServiceClient> {
+    if (this.azClient) return this.azClient;
+    const conf = this.configManager ? await this.configManager.getProviderConfig('az') : null;
+    if (conf?.credentials.connectionString) {
+      this.azClient = BlobServiceClient.fromConnectionString(conf.credentials.connectionString);
+    } else {
+      const endpoint = conf?.settings?.endpoint || (process.env.AZURE_STORAGE_ACCOUNT_URL || '');
+      if (!endpoint) throw new Error('Azure endpoint not configured');
+      this.azClient = new BlobServiceClient(endpoint);
+    }
+    return this.azClient;
+  }
+
+  private async copyS3ToS3(srcUri: string, destUri: string): Promise<void> {
+    const client = await this.getS3Client();
+    const s = this.parseS3(srcUri);
+    const d = this.parseS3(destUri);
+    if (!s.bucket || !s.key || !d.bucket || !d.key) throw new Error('Invalid S3 URIs');
+    await client.send(new CopyObjectCommand({ Bucket: d.bucket, Key: d.key, CopySource: `/${s.bucket}/${s.key}` }));
+  }
+  private async copyGcsToGcs(srcUri: string, destUri: string): Promise<void> {
+    const storage = await this.getGcsClient();
+    const s = this.parseGcs(srcUri);
+    const d = this.parseGcs(destUri);
+    if (!s.bucket || !s.key || !d.bucket || !d.key) throw new Error('Invalid GCS URIs');
+    await storage.bucket(s.bucket).file(s.key).copy(storage.bucket(d.bucket).file(d.key));
+  }
+  private async copyAzToAz(srcUri: string, destUri: string): Promise<void> {
+    const svc = await this.getAzClient();
+    const s = this.parseAz(srcUri);
+    const d = this.parseAz(destUri);
+    if (!s.container || !s.key || !d.container || !d.key) throw new Error('Invalid Azure URIs');
+    const srcUrl = svc.getContainerClient(s.container).getBlobClient(s.key).url;
+    await svc.getContainerClient(d.container).getBlockBlobClient(d.key).beginCopyFromURL(srcUrl);
+  }
+
+  private async downloadToTemp(uri: string): Promise<string> {
+    const scheme = this.getScheme(uri);
+    const tmpDir = path.join(process.cwd(), '.aifs-tmp');
+    await fs.mkdir(tmpDir, { recursive: true });
+    const tmpPath = path.join(tmpDir, `dl-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    if (scheme === 'file') {
+      const srcPath = uri.startsWith('file://') ? uri.replace('file://', '') : uri;
+      await fs.copyFile(srcPath, tmpPath);
+      return tmpPath;
+    }
+    if (scheme === 's3') {
+      const client = await this.getS3Client();
+      const { bucket, key } = this.parseS3(uri);
+      const { GetObjectCommand } = await import('@aws-sdk/client-s3');
+      const res: any = await client.send(new GetObjectCommand({ Bucket: bucket!, Key: key! }));
+      const stream = res.Body as NodeJS.ReadableStream;
+      const fsStream = (await import('fs')).createWriteStream(tmpPath);
+      await new Promise<void>((resolve, reject) => { stream.pipe(fsStream).on('finish', () => resolve()).on('error', reject); });
+      return tmpPath;
+    }
+    if (scheme === 'gcs') {
+      const storage = await this.getGcsClient();
+      const { bucket, key } = this.parseGcs(uri);
+      await storage.bucket(bucket!).file(key!).download({ destination: tmpPath });
+      return tmpPath;
+    }
+    if (scheme === 'az') {
+      const svc = await this.getAzClient();
+      const { container, key } = this.parseAz(uri);
+      const res = await svc.getContainerClient(container!).getBlockBlobClient(key!).download();
+      const fsStream = (await import('fs')).createWriteStream(tmpPath);
+      await new Promise<void>((resolve, reject) => { res.readableStreamBody!.pipe(fsStream).on('finish', () => resolve()).on('error', reject); });
+      return tmpPath;
+    }
+    throw new Error(`Unsupported scheme: ${scheme}`);
+  }
+
+  private async uploadFromPath(destUri: string, localPath: string): Promise<void> {
+    const scheme = this.getScheme(destUri);
+    if (scheme === 'file') {
+      const destPath = destUri.startsWith('file://') ? destUri.replace('file://', '') : destUri;
+      const dir = path.dirname(destPath);
+      await fs.mkdir(dir, { recursive: true });
+      await fs.copyFile(localPath, destPath);
+      return;
+    }
+    if (scheme === 's3') {
+      const client = await this.getS3Client();
+      const { bucket, key } = this.parseS3(destUri);
+      const body = (await import('fs')).createReadStream(localPath);
+      await client.send(new PutObjectCommand({ Bucket: bucket!, Key: key!, Body: body }));
+      return;
+    }
+    if (scheme === 'gcs') {
+      const storage = await this.getGcsClient();
+      const { bucket, key } = this.parseGcs(destUri);
+      await storage.bucket(bucket!).upload(localPath, { destination: key! });
+      return;
+    }
+    if (scheme === 'az') {
+      const svc = await this.getAzClient();
+      const { container, key } = this.parseAz(destUri);
+      await svc.getContainerClient(container!).getBlockBlobClient(key!).uploadFile(localPath);
+      return;
+    }
+    throw new Error(`Unsupported scheme: ${scheme}`);
   }
 }

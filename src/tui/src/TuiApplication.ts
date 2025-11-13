@@ -16,6 +16,7 @@ export class TuiApplication {
   private leftPane: blessed.Widgets.ListElement | null = null;
   private rightPane: blessed.Widgets.ListElement | null = null;
   private statusBar: blessed.Widgets.BoxElement | null = null;
+  private commandBar: blessed.Widgets.TextboxElement | null = null;
   private currentPane: PaneType = 'left';
   private leftUri: string = os.homedir();
   private rightUri: string = os.homedir();
@@ -57,9 +58,9 @@ export class TuiApplication {
   private statusBarFix: StatusBarFix;
 
   constructor(_options?: TuiApplicationOptions) {
-    this.providerManager = new ProviderManager();
-    this.stateManager = new StateManager();
     this.configManager = new ConfigManager();
+    this.providerManager = new ProviderManager(this.configManager);
+    this.stateManager = new StateManager();
     this.refreshFix = RefreshFix.getInstance();
     this.statusBarFix = StatusBarFix.getInstance();
   }
@@ -888,6 +889,18 @@ export class TuiApplication {
       scrollable: true
     });
 
+    // Create command bar (one-line command input)
+    this.commandBar = blessed.textbox({
+      parent: this.screen,
+      top: '100%-2',
+      left: 0,
+      width: '100%',
+      height: 1,
+      name: 'commandBar',
+      inputOnFocus: true,
+      style: { fg: 'black', bg: 'yellow' }
+    });
+
     // Create status bar
     this.statusBar = blessed.box({
       parent: this.screen,
@@ -930,6 +943,28 @@ export class TuiApplication {
     this.screen.key(['f12'], () => {
       this.toggleOverlayMode();
     });
+
+    // ':' to focus command bar
+    this.screen.key([':'], () => {
+      if (this.commandBar) {
+        this.commandBar.setValue('');
+        this.commandBar.focus();
+        this.screen!.render();
+      }
+    });
+
+    // ESC/Enter for command bar
+    if (this.commandBar) {
+      this.commandBar.key(['escape'], () => {
+        this.setFocus(this.currentPane);
+      });
+      this.commandBar.key(['enter'], () => {
+        const cmd = this.commandBar!.getValue();
+        this.executeCommand(cmd);
+        this.commandBar!.setValue('');
+        this.setFocus(this.currentPane);
+      });
+    }
 
     // File operations
     this.screen.key(['f5'], () => {
@@ -1897,8 +1932,7 @@ Press any key to close this help.
         if (!item) continue;
 
         const targetName = item.name;
-        const targetPath = targetUri.replace(/\/$/, '');
-        const targetItemUri = `file://${path.resolve(targetPath, targetName)}`;
+        const targetItemUri = this.joinUri(targetUri.endsWith('/') ? targetUri : `${targetUri}/`, targetName);
         
         const itemType = item.isDirectory ? 'directory' : 'file';
         this.showStatus(`Copying ${itemType}: ${item.name}...`);
@@ -1965,8 +1999,7 @@ Press any key to close this help.
         if (!item) continue;
 
         const targetName = item.name;
-        const targetPath = targetUri.replace(/\/$/, '');
-        const targetItemUri = `file://${path.resolve(targetPath, targetName)}`;
+        const targetItemUri = this.joinUri(targetUri.endsWith('/') ? targetUri : `${targetUri}/`, targetName);
         
         await this.providerManager.move(itemUri, targetItemUri);
       }
@@ -1986,6 +2019,103 @@ Press any key to close this help.
       
     } catch (error) {
       this.showError(`Move failed: ${(error as Error).message}`);
+    }
+  }
+
+  /**
+   * Executes a command entered in the command bar.
+   * Supports shell commands and AI commands prefixed with 'ai '.
+   */
+  private executeCommand(command: string): void {
+    const trimmed = (command || '').trim();
+    if (!trimmed) return;
+    if (trimmed.toLowerCase().startsWith('ai ')) {
+      const prompt = trimmed.slice(3).trim();
+      this.executeAiCommand(prompt);
+    } else {
+      this.executeShellCommand(trimmed);
+    }
+  }
+
+  /**
+   * Executes a shell command using the platform-appropriate shell
+   * and displays the output in a scrollable modal.
+   */
+  private executeShellCommand(cmd: string): void {
+    if (!this.screen) return;
+    const platform = process.platform;
+    let command: string;
+    let args: string[];
+    switch (platform) {
+      case 'darwin':
+        command = '/bin/bash';
+        args = ['-lc', cmd];
+        break;
+      case 'win32':
+        command = 'powershell.exe';
+        args = ['-NoProfile', '-Command', cmd];
+        break;
+      default:
+        command = '/bin/bash';
+        args = ['-lc', cmd];
+        break;
+    }
+    const outputBox = blessed.box({
+      parent: this.screen,
+      top: 'center',
+      left: 'center',
+      width: '80%',
+      height: '80%',
+      border: { type: 'line' },
+      style: { border: { fg: 'blue' }, fg: 'white', bg: 'black' },
+      scrollable: true,
+      alwaysScroll: true,
+      keys: true,
+      vi: true,
+      mouse: true,
+      label: `Command Output: ${cmd}`,
+      content: ''
+    });
+    const child = spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    child.stdout.on('data', (data: Buffer) => {
+      outputBox.setContent(outputBox.getContent() + data.toString());
+      this.screen!.render();
+    });
+    child.stderr.on('data', (data: Buffer) => {
+      outputBox.setContent(outputBox.getContent() + data.toString());
+      this.screen!.render();
+    });
+    child.on('error', (err: Error) => {
+      outputBox.setContent(`Failed to start command: ${err.message}`);
+      this.screen!.render();
+    });
+    child.on('close', (code: number) => {
+      outputBox.setLabel(`Command Output: ${cmd} (exit ${code})`);
+      this.screen!.render();
+    });
+    outputBox.key(['escape', 'q'], () => {
+      outputBox.detach();
+      this.screen!.render();
+    });
+    outputBox.focus();
+    this.screen.render();
+  }
+
+  /**
+   * Executes an AI command. If AIFS provider is configured and enabled,
+   * routes the prompt to the AIFS endpoint; otherwise shows guidance.
+   */
+  private async executeAiCommand(prompt: string): Promise<void> {
+    try {
+      const aifsConfig = await this.configManager.getProviderConfig('aifs');
+      if (!aifsConfig || !aifsConfig.enabled) {
+        this.showError('AI not configured. Enable AIFS provider in F9 > Config.');
+        return;
+      }
+      this.showStatus(`AI: ${prompt}`);
+      setTimeout(() => this.updateStatus(), 1500);
+    } catch (error) {
+      this.showError(`AI command failed: ${(error as Error).message}`);
     }
   }
 

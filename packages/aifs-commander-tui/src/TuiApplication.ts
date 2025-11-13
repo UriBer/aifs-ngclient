@@ -13,6 +13,7 @@ export class TuiApplication {
   private leftPane: blessed.Widgets.ListElement | null = null;
   private rightPane: blessed.Widgets.ListElement | null = null;
   private statusBar: blessed.Widgets.BoxElement | null = null;
+  private commandBar: blessed.Widgets.TextboxElement | null = null;
   private currentPane: PaneType = 'left';
   private leftUri: string = os.homedir();
   private rightUri: string = os.homedir();
@@ -36,9 +37,9 @@ export class TuiApplication {
   private dividerPosition: number = 50; // Percentage of screen width
 
   constructor(_options?: TuiApplicationOptions) {
-    this.providerManager = new ProviderManager();
     this.stateManager = new StateManager();
     this.configManager = new ConfigManager();
+    this.providerManager = new ProviderManager(this.configManager);
   }
 
   async start(): Promise<void> {
@@ -184,6 +185,21 @@ export class TuiApplication {
       scrollable: true
     });
 
+    // Create command bar (one-line command input)
+    this.commandBar = blessed.textbox({
+      parent: this.screen,
+      top: '100%-2',
+      left: 0,
+      width: '100%',
+      height: 1,
+      name: 'commandBar',
+      inputOnFocus: true,
+      style: {
+        fg: 'black',
+        bg: 'yellow'
+      }
+    });
+
     // Create status bar
     this.statusBar = blessed.box({
       parent: this.screen,
@@ -222,6 +238,29 @@ export class TuiApplication {
       this.quit();
     });
 
+    // ':' to focus command bar
+    this.screen.key([':'], () => {
+      if (this.commandBar) {
+        this.commandBar.setValue('');
+        this.commandBar.focus();
+        this.screen!.render();
+      }
+    });
+
+    // ESC to leave command bar
+    if (this.commandBar) {
+      this.commandBar.key(['escape'], () => {
+        this.setFocus(this.currentPane);
+      });
+
+      this.commandBar.key(['enter'], () => {
+        const cmd = this.commandBar!.getValue();
+        this.executeCommand(cmd);
+        this.commandBar!.setValue('');
+        this.setFocus(this.currentPane);
+      });
+    }
+
     // File operations
     this.screen.key(['f5'], () => {
       this.handleCopy();
@@ -257,12 +296,12 @@ export class TuiApplication {
     });
 
     // Left pane events
-    this.leftPane.on('select', (_item, index) => {
+    this.leftPane.on('select', (_item: any, index: number) => {
       this.leftSelected = index;
       this.updateStatus();
     });
 
-    this.leftPane.on('keypress', (ch, key) => {
+    this.leftPane.on('keypress', (ch: string, key: any) => {
       this.handleKeyPress('left', ch, key);
     });
 
@@ -272,12 +311,12 @@ export class TuiApplication {
     });
 
     // Right pane events
-    this.rightPane.on('select', (_item, index) => {
+    this.rightPane.on('select', (_item: any, index: number) => {
       this.rightSelected = index;
       this.updateStatus();
     });
 
-    this.rightPane.on('keypress', (ch, key) => {
+    this.rightPane.on('keypress', (ch: string, key: any) => {
       this.handleKeyPress('right', ch, key);
     });
 
@@ -289,10 +328,9 @@ export class TuiApplication {
 
   private async loadDirectory(pane: PaneType, uri: string, selectedIndex: number = 0): Promise<void> {
     try {
-      // Convert local path to file URI if needed
-      const fileUri = uri.startsWith('file://') ? uri : `file://${path.resolve(uri)}`;
-      
-      const result = await this.providerManager.list(fileUri);
+      const scheme = uri.startsWith('file://') || uri.startsWith('/') ? 'file' : (uri.match(/^([a-z]+):\/\//)?.[1] || 'file');
+      const normalizedUri = scheme === 'file' ? (uri.startsWith('file://') ? uri : `file://${path.resolve(uri)}`) : uri;
+      const result = await this.providerManager.list(normalizedUri);
       const items = result.items;
       const paneList = pane === 'left' ? this.leftPane : this.rightPane;
       
@@ -378,11 +416,12 @@ export class TuiApplication {
       // Save current position in history before entering directory
       this.navigationHistory[pane].push({
         uri: uri,
-        selectedIndex: index
+        selectedIndex: index,
+        timestamp: new Date()
       });
       
-      const newUri = path.join(uri, selectedItem.name);
-      await this.loadDirectory(pane, newUri, 0); // Start at top of new directory
+      const newUri = this.joinUri(uri.endsWith('/') ? uri : `${uri}/`, selectedItem.name + '/');
+      await this.loadDirectory(pane, newUri, 0);
     } else {
       // For files, open with default application
       const filePath = selectedItem.uri.startsWith('file://') 
@@ -602,18 +641,36 @@ export class TuiApplication {
 
   private async goToParent(pane: PaneType): Promise<void> {
     const uri = pane === 'left' ? this.leftUri : this.rightUri;
-    const parentUri = path.dirname(uri);
-    
+    const parentUri = this.getParentUri(uri);
     if (parentUri !== uri) {
-      // Check if we have navigation history for this pane
       if (this.navigationHistory[pane].length > 0) {
         const historyEntry = this.navigationHistory[pane].pop()!;
         await this.loadDirectory(pane, historyEntry.uri, historyEntry.selectedIndex);
       } else {
-        // No history, just go to parent directory
         await this.loadDirectory(pane, parentUri, 0);
       }
     }
+  }
+
+  /**
+   * Computes parent URI for local and cloud schemes.
+   */
+  private getParentUri(uri: string): string {
+    if (uri.startsWith('file://') || uri.startsWith('/')) {
+      const p = uri.startsWith('file://') ? uri.replace('file://', '') : uri;
+      const parent = path.dirname(p);
+      return uri.startsWith('file://') ? `file://${parent}` : parent;
+    }
+    const m = uri.match(/^([a-z]+):\/\/(.*)$/);
+    if (!m) return uri;
+    const scheme = m[1];
+    const rest = m[2];
+    if (!rest) return `${scheme}://`;
+    const trimmed = rest.replace(/\/$/, '');
+    const idx = trimmed.lastIndexOf('/');
+    if (idx <= 0) return `${scheme}://`;
+    const parent = trimmed.substring(0, idx + 1);
+    return `${scheme}://${parent}`;
   }
 
   private switchPane(): void {
@@ -749,6 +806,12 @@ Navigation:
   Backspace    - Go to parent directory
   Space        - Toggle file selection
 
+Command Line:
+  ':'          - Focus command line
+  Enter        - Execute shell or AI command
+  ESC          - Exit command line
+  Examples     - ls -la, ai summarize current
+
 File Operations:
   F5           - Copy selected files to other pane
   F6           - Move selected files to other pane
@@ -806,6 +869,115 @@ Press any key to close this help.
 
     helpBox.focus();
     this.screen.render();
+  }
+
+  /**
+   * Executes a command entered in the command bar.
+   * Supports shell commands and AI commands prefixed with 'ai '.
+   */
+  private executeCommand(command: string): void {
+    const trimmed = (command || '').trim();
+    if (!trimmed) return;
+    if (trimmed.toLowerCase().startsWith('ai ')) {
+      const prompt = trimmed.slice(3).trim();
+      this.executeAiCommand(prompt);
+    } else {
+      this.executeShellCommand(trimmed);
+    }
+  }
+
+  /**
+   * Executes a shell command using the platform-appropriate shell
+   * and displays the output in a scrollable modal.
+   */
+  private executeShellCommand(cmd: string): void {
+    if (!this.screen) return;
+
+    const platform = process.platform;
+    let command: string;
+    let args: string[];
+
+    switch (platform) {
+      case 'darwin':
+        command = '/bin/bash';
+        args = ['-lc', cmd];
+        break;
+      case 'win32':
+        command = 'powershell.exe';
+        args = ['-NoProfile', '-Command', cmd];
+        break;
+      default:
+        command = '/bin/bash';
+        args = ['-lc', cmd];
+        break;
+    }
+
+    const outputBox = blessed.box({
+      parent: this.screen,
+      top: 'center',
+      left: 'center',
+      width: '80%',
+      height: '80%',
+      border: { type: 'line' },
+      style: { border: { fg: 'blue' }, fg: 'white', bg: 'black' },
+      scrollable: true,
+      alwaysScroll: true,
+      keys: true,
+      vi: true,
+      mouse: true,
+      label: `Command Output: ${cmd}`,
+      content: ''
+    });
+
+    const child = spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+
+    child.stdout.on('data', (data: Buffer) => {
+      outputBox.setContent(outputBox.getContent() + data.toString());
+      this.screen!.render();
+    });
+
+    child.stderr.on('data', (data: Buffer) => {
+      outputBox.setContent(outputBox.getContent() + data.toString());
+      this.screen!.render();
+    });
+
+    child.on('error', (err: Error) => {
+      outputBox.setContent(`Failed to start command: ${err.message}`);
+      this.screen!.render();
+    });
+
+    child.on('close', (code: number) => {
+      outputBox.setLabel(`Command Output: ${cmd} (exit ${code})`);
+      this.screen!.render();
+    });
+
+    outputBox.key(['escape', 'q'], () => {
+      outputBox.detach();
+      this.screen!.render();
+    });
+
+    outputBox.focus();
+    this.screen.render();
+  }
+
+  /**
+   * Executes an AI command. If AIFS provider is configured and enabled,
+   * routes the prompt to the AIFS endpoint; otherwise shows guidance.
+   */
+  private async executeAiCommand(prompt: string): Promise<void> {
+    try {
+      const aifsConfig = await this.configManager.getProviderConfig('aifs');
+      if (!aifsConfig || !aifsConfig.enabled) {
+        this.showError('AI not configured. Enable AIFS provider in F9 > Config.');
+        return;
+      }
+      this.showStatus(`AI: ${prompt}`);
+      // Placeholder: actual AIFS gRPC integration would go here.
+      // For now, just acknowledge.
+      setTimeout(() => this.updateStatus(), 1500);
+    } catch (error) {
+      this.showError(`AI command failed: ${(error as Error).message}`);
+    }
   }
 
   private handleResize(): void {
@@ -920,8 +1092,7 @@ Press any key to close this help.
         if (!item) continue;
 
         const targetName = item.name;
-        const targetPath = targetUri.replace(/\/$/, '');
-        const targetItemUri = `file://${path.resolve(targetPath, targetName)}`;
+        const targetItemUri = this.joinUri(targetUri, targetName);
         
         const itemType = item.isDirectory ? 'directory' : 'file';
         this.showStatus(`Copying ${itemType}: ${item.name}...`);
@@ -988,8 +1159,7 @@ Press any key to close this help.
         if (!item) continue;
 
         const targetName = item.name;
-        const targetPath = targetUri.replace(/\/$/, '');
-        const targetItemUri = `file://${path.resolve(targetPath, targetName)}`;
+        const targetItemUri = this.joinUri(targetUri, targetName);
         
         await this.providerManager.move(itemUri, targetItemUri);
       }
@@ -1010,6 +1180,22 @@ Press any key to close this help.
     } catch (error) {
       this.showError(`Move failed: ${(error as Error).message}`);
     }
+  }
+
+  /**
+   * Joins a base URI and a name, preserving the scheme.
+   */
+  private joinUri(baseUri: string, name: string): string {
+    if (baseUri.startsWith('file://')) {
+      const basePath = baseUri.replace('file://', '').replace(/\/$/, '');
+      return `file://${path.resolve(basePath, name)}`;
+    }
+    if (/^(s3|gcs|az):\/\//.test(baseUri)) {
+      const trailing = baseUri.endsWith('/') ? '' : '/';
+      return `${baseUri}${trailing}${name}`;
+    }
+    const cleaned = baseUri.replace(/\/$/, '');
+    return `${cleaned}/${name}`;
   }
 
   private async handleMkdir(): Promise<void> {

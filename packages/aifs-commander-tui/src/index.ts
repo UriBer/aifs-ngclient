@@ -10,11 +10,7 @@
  */
 
 export { TuiApplication } from './TuiApplication';
-export { TuiConfig } from './TuiConfig';
-export { TuiFileBrowser } from './TuiFileBrowser';
-export { TuiJobManager } from './TuiJobManager';
-export { TuiLayout } from './TuiLayout';
-export { TuiLogger } from './TuiLogger';
+
 export { ConfigUI } from './ConfigUI';
 export { StateManager } from './StateManager';
 export { ProviderManager } from './ProviderManager';

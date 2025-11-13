@@ -78,6 +78,7 @@ export interface FileItem {
   size?: number;
   modified?: Date;
   permissions?: string;
+  mtime?: Date;
 }
 
 export interface JobInfo {
@@ -109,4 +110,19 @@ export interface CliCredentials {
     clientId: string;
     clientSecret: string;
   };
+}
+
+export interface NavigationHistoryEntry {
+  uri: string;
+  timestamp: Date;
+  selectedIndex?: number;
+}
+
+export type PaneType = 'left' | 'right';
+
+export interface TuiApplicationOptions {
+  configPath?: string;
+  theme?: 'light' | 'dark';
+  showHiddenFiles?: boolean;
+  logLevel?: 'debug' | 'info' | 'warn' | 'error';
 }
