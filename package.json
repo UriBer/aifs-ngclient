@@ -73,7 +73,7 @@
     "@google-cloud/storage": "^6.10.1",
     "@grpc/grpc-js": "^1.8.14",
     "@grpc/proto-loader": "^0.7.6",
-    "axios": "^1.5.0",
+    "axios": "^1.13.5",
     "blake3": "^2.1.7",
     "electron-store": "^8.1.0",
     "keytar": "^7.9.0",
